@@ -223,7 +223,7 @@ cache_key_whisper() {
 }
 cache_key_freetype() {
     cache_key_common freetype \
-        --source PS5_PayloadSDK --download freetype-2.14.3 \
+        --source PS5_PayloadSDK --download freetype-2.15.0 \
         --path "$wow/ps5/build-freetype.sh" \
         --path "$wow/ps5/build-common.sh" \
         --path "$wow/ps5/paths.sh"

@@ -19,8 +19,8 @@ source "$here/build-common.sh"
 sdk=${PS5_PAYLOAD_SDK:-$HOME/ps5-payload-sdk-platform}/bin
 source "$here/paths.sh"
 
-version=2.14.3
-sha256=36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f
+version=2.15.0
+sha256=93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5
 url=https://download.savannah.gnu.org/releases/freetype/freetype-$version.tar.xz
 archive=$here/build/freetype-$version.tar.xz
 src=$here/build/freetype-$version

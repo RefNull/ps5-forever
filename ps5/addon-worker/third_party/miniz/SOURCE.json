@@ -1,17 +1,17 @@
 {
   "repository": "https://github.com/richgel999/miniz.git",
-  "commit": "293d4db1b7d0ffee9756d035b9ac6f7431ef8492",
+  "commit": "275e344915198485e22174fc56146035005f1b07",
   "files": {
-    "miniz.c": "d8b837863cc6536a270751893a9778c4241467d8906719ae6cb787a62fa797bc",
-    "miniz.h": "8033197e77c9567de66425939ab6164405e54aa3c60acf9312905d32c8cddc03",
-    "miniz_common.h": "8b60e76e726dfcf41a338c3a4c54c70038041a21e6314aa54fd3b7f729ea3412",
-    "miniz_export.h": "9f926dfa7e61bd90c8b0721122b136a3dd17a9a553abb43ee3a1a59a87ffe99e",
-    "miniz_tinfl.c": "9b7edc1fab708166e10f5e90a618a91c95a91496c4692e38160fdae810c1149a",
-    "miniz_tinfl.h": "040aad2d9ca23c487652c150277d950be12e72c5453ae1f7c6713ed2efd16b4e",
-    "miniz_tdef.c": "69a1d22a01e698286a7d2a8df90884aa33b4f073e080749e1fce76c5117a5a29",
-    "miniz_tdef.h": "12b09b189c27aa7d0b0ebe0be2f3021a3bab26fe7b19e9b3b6f5c4df7c21e9df",
-    "miniz_zip.c": "7179062fdaa868d18e86ae9391fe47316ef4632c5a24fe3d3ce73d6535c7dd5c",
-    "miniz_zip.h": "c9343f0d251d92f3730d5fe684d4af67aa0bed25d2d1d39d5fd4746a3c63f796",
+    "miniz.c": "29a0c08c4610d20ab18381cbf18190f91b4b41d05c242376364756061b631f1d",
+    "miniz.h": "2b9c48355793988f0d12b3cef357e52b741d744385157b59cb422237ea226501",
+    "miniz_common.h": "d0770cc478923e33bf22820fc51bbe22b6b99c3230ce4f5fc10eea3debc75623",
+    "miniz_export.h": "a71772779901143ca4ccfb122c14f8c992738db7c36c16bd54a7f44dd2b11d8c",
+    "miniz_tinfl.c": "7113a08a7722d671ce89b8de61fe6d02d0cadca0ff274ba357bf2a9dc85745ca",
+    "miniz_tinfl.h": "2c89615a4cbc5de4eac5b861051849392ec698264ee7dd399ea587c592cf68d1",
+    "miniz_tdef.c": "989e124126377e9e892469749822e3582fa11afc6ad2ec6f53c0f0fba20869a7",
+    "miniz_tdef.h": "18d4da29bd70a9395404e60b35b25e690fbc6bbc540bade2581639be05d5534b",
+    "miniz_zip.c": "41682dda5a5c456ea3c2bda037b563203afce097d665249ef429424f758c12eb",
+    "miniz_zip.h": "43d09867f79993a9ba1627cb1f3bbd78d3bf5ee0c91cd6e7527aa9ca1e3aed44",
     "LICENSE": "0115478d567121238cf6cc1c0c361926cf07a49d9e4c9e66da97fac6a01646b3"
   }
 }

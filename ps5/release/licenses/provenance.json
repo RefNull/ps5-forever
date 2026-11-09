@@ -28,7 +28,7 @@
     "miniz/LICENSE": {
       "component": "miniz",
       "path": "LICENSE",
-      "revision": "293d4db1b7d0ffee9756d035b9ac6f7431ef8492",
+      "revision": "275e344915198485e22174fc56146035005f1b07",
       "url": "https://github.com/richgel999/miniz.git",
       "sha256": "0115478d567121238cf6cc1c0c361926cf07a49d9e4c9e66da97fac6a01646b3"
     },
@@ -91,67 +91,67 @@
     },
     "FreeType/BDF-NOTICE.txt": {
       "component": "FreeType",
-      "path": "freetype-2.14.3/src/bdf/README",
+      "path": "freetype-2.15.0/src/bdf/README",
       "lines": [
         99,
         144
       ],
-      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
-      "archive_sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
+      "archive_sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5",
       "sha256": "d97ce69c9dff1f885ad6341b58bdfeecf241337597f78ecc9544776b8f1d7416"
     },
     "FreeType/HarfBuzz-NOTICE.txt": {
       "component": "FreeType",
-      "path": "freetype-2.14.3/src/autofit/ft-hb-ft.c",
+      "path": "freetype-2.15.0/src/autofit/ft-hb-ft.c",
       "lines": [
         1,
         25
       ],
-      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
-      "archive_sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
+      "archive_sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5",
       "sha256": "9eb9395c70e884f61081775892fae5949ad7762461bea5753dc5478b0c080302"
     },
     "FreeType/LICENSE.TXT": {
       "component": "FreeType",
-      "path": "freetype-2.14.3/LICENSE.TXT",
-      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
-      "archive_sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
+      "path": "freetype-2.15.0/LICENSE.TXT",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
+      "archive_sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5",
       "sha256": "bd36c8b474855fa294c2ec5c184544478ef3720aad37d65a6296a4f264fd2d3b"
     },
     "FreeType/PCF-NOTICE.txt": {
       "component": "FreeType",
-      "path": "freetype-2.14.3/src/pcf/README",
+      "path": "freetype-2.15.0/src/pcf/README",
       "lines": [
         66,
         88
       ],
-      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
-      "archive_sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
+      "archive_sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5",
       "sha256": "acb4adde9db25f992623adb83a3c95db21fb157aae02a19b56aad9194fe8cc64"
     },
     "FreeType/docs/FTL.TXT": {
       "component": "FreeType",
-      "path": "freetype-2.14.3/docs/FTL.TXT",
-      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
-      "archive_sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
+      "path": "freetype-2.15.0/docs/FTL.TXT",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
+      "archive_sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5",
       "sha256": "5a5ee54c5001bbad1cdc1a57cc3dd4c42199b2da09d39c7ee41fab002d02967f"
     },
     "FreeType/docs/GPLv2.TXT": {
       "component": "FreeType",
-      "path": "freetype-2.14.3/docs/GPLv2.TXT",
-      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
-      "archive_sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
+      "path": "freetype-2.15.0/docs/GPLv2.TXT",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
+      "archive_sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5",
       "sha256": "c4120c6752c910c299e3bd9cb3a46ff262c268303ca2069b61f92f10a5656c18"
     },
     "FreeType/zlib-NOTICE.txt": {
       "component": "FreeType",
-      "path": "freetype-2.14.3/src/gzip/zlib.h",
+      "path": "freetype-2.15.0/src/gzip/zlib.h",
       "lines": [
         1,
         29
       ],
-      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
-      "archive_sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
+      "archive_sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5",
       "sha256": "02421fcfbfb1d656ef0b6ff4cd3c39f2946f08c3219fa42db482add7ce1f53ea"
     },
     "GPL-3.0.txt": {
@@ -286,13 +286,13 @@
     },
     "Mozilla/CA-NOTICE.txt": {
       "component": "Mozilla root certificates",
-      "path": "cacert-2026-09-25.pem",
-      "url": "https://curl.se/ca/cacert-2026-09-25.pem",
+      "path": "cacert-2026-11-05.pem",
+      "url": "https://curl.se/ca/cacert-2026-11-05.pem",
       "lines": [
         1,
         20
       ],
-      "sha256": "82e6295ab4c3b059137d8ba52b8f9b0dfda6952255a333d11b84c6d8a2dee566"
+      "sha256": "9acade42859d38ef4ae21c066ce77f8fc69b5806b4f3dea618c80c90c2466e56"
     },
     "Mozilla/MPL-2.0.txt": {
       "component": "Mozilla root certificates",

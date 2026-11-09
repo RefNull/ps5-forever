@@ -757,13 +757,13 @@ if args.profile == 'b1':
         shutil.copy2(source, destination)
     # Mozilla's root certificates (curl's extract), pinned as in
     # ps5/stage-wine.sh: crypt32 and so Chromium verify HTTPS against them.
-    cacert = here / '../../build/cacert-2026-09-25.pem'
+    cacert = here / '../../build/cacert-2026-11-05.pem'
     if not cacert.is_file():
         run(['curl', '--fail', '--silent', '--location', '--output', cacert.with_suffix('.part'),
-             'https://curl.se/ca/cacert-2026-09-25.pem'])
+             'https://curl.se/ca/cacert-2026-11-05.pem'])
         cacert.with_suffix('.part').rename(cacert)
     if hashlib.sha256(cacert.read_bytes()).hexdigest() != (
-            'a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505'):
+            '427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285'):
         raise SystemExit(f'pinned certificate bundle digest mismatch: {cacert}')
     shutil.copy2(cacert, tree / 'share/wine/cacert.pem')
     # The console has no system fonts: the same pinned fallback faces (CJK,

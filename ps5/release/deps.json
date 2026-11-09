@@ -176,9 +176,9 @@
       "sha256": "6261129c119e648e4574a59e125f2d58953ecf32c5d0940f776a11c8f4082a21"
     },
     {
-      "name": "freetype-2.14.3",
-      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.14.3.tar.xz",
-      "sha256": "36bc4f1cc413335368ee656c42afca65c5a3987e8768cc28cf11ba775e785a5f"
+      "name": "freetype-2.15.0",
+      "url": "https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz",
+      "sha256": "93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5"
     },
     {
       "name": "nettle-3.10.2",
@@ -211,9 +211,9 @@
       "sha256": "e79b98eb24a75392009cec6f99ca5cdca9881ff20bfa174e8b8926d5c7a47095"
     },
     {
-      "name": "mozilla-roots-2026-09-25",
-      "url": "https://curl.se/ca/cacert-2026-09-25.pem",
-      "sha256": "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505"
+      "name": "mozilla-roots-2026-11-05",
+      "url": "https://curl.se/ca/cacert-2026-11-05.pem",
+      "sha256": "427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285"
     },
     {
       "name": "DroidSansFallbackLegacy.ttf",
