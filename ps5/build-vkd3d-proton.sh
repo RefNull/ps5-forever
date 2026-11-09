@@ -88,6 +88,30 @@ if [[ ! -f $dxbc/submodules/spirv_headers/include/spirv/unified1/spirv.hpp ]]; t
     git -C "$dxbc" submodule update --init -- submodules/spirv_headers
 fi
 
+# Apply ps5/vkd3d-proton/patches/*.patch, in name order, to the pinned
+# checkout. A stamp in its Git directory names the applied series, so a rerun
+# skips it and a changed series first restores the files the old one touched.
+shopt -s nullglob
+patches=("$here"/vkd3d-proton/patches/*.patch)
+shopt -u nullglob
+stamp=$(git -C "$src" rev-parse --path-format=absolute --git-path forever-patches)
+series=$( (( ${#patches[@]} )) && cat "${patches[@]}" | git hash-object --stdin || echo none)
+if [[ $(cat "$stamp" 2>/dev/null) != "$series" ]]; then
+    if [[ -f $stamp ]]; then
+        git -C "$src" checkout -- .
+    elif ! git -C "$src" diff --quiet HEAD; then
+        printf '%s has local changes; ps5/vkd3d-proton/patches applies only to a clean pinned checkout\n' \
+            "$src" >&2
+        exit 1
+    fi
+    rm -f "$stamp"
+    for patch in "${patches[@]}"; do
+        printf 'applying %s\n' "${patch##*/}"
+        git -C "$src" apply "$patch"
+    done
+    printf '%s\n' "$series" > "$stamp"
+fi
+
 # Keep Homebrew's host include/library flags out of this cross build, as in
 # build-dxvk.sh. All compiler and IDL compiler paths are explicit below.
 unset CPPFLAGS LDFLAGS CFLAGS CXXFLAGS

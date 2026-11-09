@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Afnan Mojumder <afnan.mojumder@gmail.com>
+Date: Sun, 25 Oct 2026 01:48:31 +0600
+Subject: [PATCH 4/4] vkd3d: Avoid querying surface capabilities on every
+ present when not occluded.
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+In dxgi_vk_swap_chain_present_is_occluded(), the surface capabilities
+were queried synchronously via vkGetPhysicalDeviceSurfaceCapabilitiesKHR
+whenever the present task was idle. In steady-state non-occluded rendering,
+the presentation task completes quickly, causing the idle condition to be
+satisfied on virtually every frame. This resulted in an expensive roundtrip
+to the display server (200-300 µs) on every present on the render thread.
+
+Instead, rely on the observed state from the presentation thread during
+normal rendering. Only query the surface directly when the swap chain is
+already marked occluded (to detect window restoration) or when the caller
+is explicitly testing for occlusion with DXGI_PRESENT_TEST.
+Also initialize the occlusion state during swapchain creation.
+
+Fixes: #3380
+(cherry picked from commit 7ab6cd5bd843bd6daaa199fe8badb9cb673c3665)
+---
+ libs/vkd3d/swapchain.c | 39 +++++++++++++++++++++++----------------
+ 1 file changed, 23 insertions(+), 16 deletions(-)
+
+diff --git a/libs/vkd3d/swapchain.c b/libs/vkd3d/swapchain.c
+index 78472356..8d2a60b4 100644
+--- a/libs/vkd3d/swapchain.c
++++ b/libs/vkd3d/swapchain.c
+@@ -1914,26 +1914,29 @@ static bool dxgi_vk_swap_chain_is_occluded(struct dxgi_vk_swap_chain *chain)
+ }
+ #endif
+ 
+-static bool dxgi_vk_swap_chain_present_is_occluded(struct dxgi_vk_swap_chain *chain)
++static bool dxgi_vk_swap_chain_present_is_occluded(struct dxgi_vk_swap_chain *chain, UINT flags)
+ {
+ #ifdef _WIN32
+-    if (dxgi_vk_swap_chain_present_task_is_idle(chain))
+-    {
+-        /* Query the surface directly. */
+-        chain->present.is_occlusion_state = dxgi_vk_swap_chain_is_occluded(chain);
+-        return chain->present.is_occlusion_state != 0;
+-    }
+-    else
++    uint32_t occlusion_state = vkd3d_atomic_uint32_load_explicit(&chain->present.is_occlusion_state,
++            vkd3d_memory_order_relaxed);
++
++    /* If we are already occluded, or the app is explicitly testing for occlusion,
++     * query the surface directly when the present task is idle to detect state changes.
++     * In the steady non-occluded state, rely on observed behavior from the presentation thread
++     * to avoid an expensive vkGetPhysicalDeviceSurfaceCapabilitiesKHR roundtrip on every present. */
++    if ((occlusion_state || (flags & DXGI_PRESENT_TEST)) && dxgi_vk_swap_chain_present_task_is_idle(chain))
+     {
+-        /* If presentation requests are pending it is not safe to access the surface directly
+-         * without adding tons of locks everywhere,
+-         * so rely on observed behavior from presentation thread. */
+-        return vkd3d_atomic_uint32_load_explicit(&chain->present.is_occlusion_state, vkd3d_memory_order_relaxed) != 0;
++        occlusion_state = dxgi_vk_swap_chain_is_occluded(chain);
++        vkd3d_atomic_uint32_store_explicit(&chain->present.is_occlusion_state, occlusion_state,
++                vkd3d_memory_order_relaxed);
+     }
++
++    return occlusion_state != 0;
+ #else
+-	/* Irrelevant on native build. */
+-	(void)chain;
+-	return false;
++    /* Irrelevant on native build. */
++    (void)chain;
++    (void)flags;
++    return false;
+ #endif
+ }
+ 
+@@ -2280,7 +2283,7 @@ static HRESULT STDMETHODCALLTYPE dxgi_vk_swap_chain_Present(IDXGIVkSwapChain2 *i
+             iface, SyncInterval, PresentFlags, pPresentParameters);
+     (void)pPresentParameters;
+ 
+-    if (dxgi_vk_swap_chain_present_is_occluded(chain))
++    if (dxgi_vk_swap_chain_present_is_occluded(chain, PresentFlags))
+         return DXGI_STATUS_OCCLUDED;
+     if (PresentFlags & DXGI_PRESENT_TEST)
+         return S_OK;
+@@ -4940,6 +4943,10 @@ static HRESULT dxgi_vk_swap_chain_init(struct dxgi_vk_swap_chain *chain, IDXGIVk
+     if (FAILED(hr = dxgi_vk_swap_chain_create_surface(chain, pFactory)))
+         goto cleanup_sync_objects;
+ 
++#ifdef _WIN32
++    chain->present.is_occlusion_state = dxgi_vk_swap_chain_is_occluded(chain);
++#endif
++
+     if (FAILED(hr = dxgi_vk_swap_chain_init_waiter_thread(chain)))
+         goto cleanup_surface;
+ 

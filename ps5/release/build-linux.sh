@@ -215,6 +215,7 @@ cache_key_vkd3d() {
     cache_key_common vkd3d-proton \
         --source-prefix vkd3d-proton \
         --path "$wow/ps5/build-vkd3d-proton.sh" \
+        --path "$wow/ps5/vkd3d-proton" \
         --value "VKD3D_ARCHS=$VKD3D_ARCHS" \
         --value "PS5_CPU_FLAGS=${PS5_CPU_FLAGS:-}" \
         --value "WIDL=${WIDL:-}"
