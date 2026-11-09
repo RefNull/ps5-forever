@@ -14,6 +14,7 @@
 # PS5_CPU_FLAGS (default empty) appends target CPU flags to Unix and both PE
 # architectures. Use WINE_BUILD for an isolated comparison, for example:
 # WINE_BUILD="$PWD/ps5/build/wine-ps5-build-znver2" PS5_CPU_FLAGS="-march=znver2"
+# WINE_DESCRIBE optionally fixes the version string Wine embeds in ntdll.
 # WINE_REPRO_FLAGS and WINE_TOOLS_REPRO_FLAGS optionally normalize
 # build-directory paths in debug data; release cache orchestration sets them,
 # while ordinary builds leave them empty.
@@ -45,6 +46,33 @@ jobs=${JOBS:-8}
 wine_ps5_extra_cflags=${WINE_PS5_EXTRA_CFLAGS:-}
 unset CPPFLAGS LDFLAGS CFLAGS CXXFLAGS
 export PATH=$mingw/bin:${BISON_BIN:-/opt/homebrew/opt/bison/bin}:$PATH
+
+# Wine embeds `GIT_DIR=$src/.git git describe HEAD` in ntdll (the
+# dlls/ntdll/unix/version.c rule) and falls back to wine-$(PACKAGE_VERSION)
+# when that fails, as it does in a depth-1 checkout without tags. WINE_DESCRIBE
+# (optional) supplies the value: a git shim first on PATH answers that one
+# command for this source tree and runs the real git for everything else.
+version_c=$cross/dlls/ntdll/unix/version.c
+if [[ -n ${WINE_DESCRIBE:-} ]]; then
+    [[ $WINE_DESCRIBE =~ ^[A-Za-z0-9._+-]+$ ]] || {
+        printf 'WINE_DESCRIBE is not a describe string: %s\n' "$WINE_DESCRIBE" >&2; exit 2;
+    }
+    real_git=$(command -v git)
+    source_dir=$(cd -- "$src" && pwd -P)
+    describe_bin=$(mktemp -d "${TMPDIR:-/tmp}/wine-describe.XXXXXX")
+    trap 'rm -rf -- "$describe_bin"' EXIT
+    cat > "$describe_bin/git" <<EOF
+#!/bin/sh
+if [ \$# = 2 ] && [ "\$1" = describe ] && [ "\$2" = HEAD ] && [ -n "\${GIT_DIR:-}" ] &&
+    [ "\$(cd -- "\$GIT_DIR/.." 2>/dev/null && pwd -P)" = '$source_dir' ]; then
+    printf '%s\n' '$WINE_DESCRIBE'
+    exit 0
+fi
+exec '$real_git' "\$@"
+EOF
+    chmod 755 "$describe_bin/git"
+    export PATH=$describe_bin:$PATH
+fi
 
 without=(--without-x --without-pulse --without-alsa
     --without-oss --without-sdl --without-opencl --without-cups --without-sane
@@ -191,6 +219,11 @@ if [[ -f $cross/server/wineserver ]]; then
         -Wl,--wrap=malloc,--wrap=calloc,--wrap=realloc,--wrap=free \
         -Wl,--wrap=pthread_key_create,--wrap=pthread_getspecific,--wrap=pthread_setspecific \
         -L"$here/build/ps5-lib" -lunwind -lps5platform >> "$cross/make.log" 2>&1 || status=$?
+fi
+if [[ -n ${WINE_DESCRIBE:-} && -f $version_c &&
+      $(<"$version_c") != "const char wine_build[] = \"$WINE_DESCRIBE\";" ]]; then
+    printf 'ntdll version string is not WINE_DESCRIBE: %s\n' "$(<"$version_c")" >&2
+    status=1
 fi
 grep -E "error:|\*\*\*|undefined symbol" "$cross/make.log" | sort | uniq -c | sort -rn | head -40 || true
 echo "make status $status, log $cross/make.log"

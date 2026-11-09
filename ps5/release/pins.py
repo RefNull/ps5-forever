@@ -3,6 +3,7 @@
 
     pins.py value KEY                   print a top-level manifest value
     pins.py download KEY FIELD...       print a download's fields, tab-separated
+    pins.py source NAME FIELD           print a source's field
     pins.py check                       host test: every copy that cannot read
                                         deps.json still agrees with it
     pins.py validate-sources ROOT TAG RADV_REVISION
@@ -126,6 +127,17 @@ def check(manifest):
             attempt(download, manifest, next(group for group in match.groups() if group))
 
     version = attempt(content_version)
+    # Wine embeds this in ntdll (build-wine.sh WINE_DESCRIBE). It is the
+    # annotated tag upstream publishes on the pinned commit for each upstream
+    # release, so `git describe HEAD` of a full clone prints exactly this.
+    # This fork versions 01.UUU.FFF on upstream 01.000.UUU: the tag must name
+    # that upstream base.
+    describe = sources['ps5-wine'].get('describe', '')
+    parts = (version or '').split('.')
+    base = f'{parts[0]}.000.{parts[1]}' if len(parts) == 3 else ''
+    expect(re.fullmatch(rf'wine-\d+\.\d+-\d+-forever-{re.escape(base)}', describe),
+           f'ps5-wine describe {describe!r} is not the wine-*-forever-{base} '
+           f'upstream tag for {version}')
     workflow = (REPO / '.github/workflows/release.yml').read_text()
     default = re.search(r"version:\n(?:\s+\w+:.*\n)*?\s+default: '([^']*)'", workflow)
     expect(default and default[1] == version,
@@ -220,6 +232,8 @@ def main(argv):
     elif command == 'download' and len(arguments) >= 2:
         entry = download(manifest, arguments[0])
         print('\t'.join(str(entry[field]) for field in arguments[1:]))
+    elif command == 'source' and len(arguments) == 2:
+        print(source(manifest, arguments[0])[arguments[1]])
     elif command == 'check' and not arguments:
         check(manifest)
     elif command == 'validate-sources' and len(arguments) == 3:

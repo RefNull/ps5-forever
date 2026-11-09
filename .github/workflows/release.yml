@@ -42,7 +42,9 @@ jobs:
       - name: Check build disk
         run: |
           # Never remove preinstalled tools from a persistent self-hosted machine.
-          python3 -c 'import os, shutil; free = shutil.disk_usage(os.environ["GITHUB_WORKSPACE"]).free; print(f"Build disk available: {free // (1 << 30)} GiB"); assert free >= 30 << 30, "release build requires at least 30 GiB free"'
+          # Warm floor only; build-linux.sh's disk stage applies the cold amount
+          # when the cache lacks an entry for this build's keys.
+          python3 -c 'import os, shutil; free = shutil.disk_usage(os.environ["GITHUB_WORKSPACE"]).free; print(f"Build disk available: {free // (1 << 30)} GiB"); assert free >= 10 << 30, "release build requires at least 10 GiB free"'
       - name: Check out pinned public sources
         run: python3 "$PRODUCT/ps5/release/fetch-sources.py" "$SOURCE_ROOT"
       - name: Build and qualify both title roles in the pinned container

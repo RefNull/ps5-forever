@@ -4,6 +4,9 @@
 # LLVM_MINGW (default ~/llvm-mingw) selects the toolchain; JOBS defaults to 8.
 # Meson trees, generated cross files and installed DLLs stay in ps5/build/dxvk-32
 # and ps5/build/dxvk-64. The DLLs are in each tree's dlls/ directory.
+# DXVK_ARCHS (default "32 64") selects architectures; DXVK_DLLS (default all of
+# d3d8 d3d9 d3d10core d3d11 dxgi) selects DLLs through DXVK's enable_* options,
+# which only choose src/ subdirectories, so a selected DLL's bytes do not change.
 # Missing build tools are reported with a Homebrew command, never installed here.
 set -euo pipefail
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -70,13 +73,20 @@ export PATH=$mingw/bin:$PATH
 # Use DXVK's standalone release recipe here instead: release, strip and
 # b_ndebug=if-release (dxvk/package-release.sh:64-77), with all DLLs explicit.
 meson_options=(--buildtype=release --strip -Db_ndebug=if-release
-    -Denable_dxgi=true -Denable_d3d9=true -Denable_d3d10=true -Denable_d3d11=true
     --force-fallback-for=libdisplay-info)
-dlls=(d3d9 d3d10core d3d11 dxgi)
-if [[ -f $src/src/d3d8/meson.build ]]; then
-    meson_options+=(-Denable_d3d8=true)
-    dlls+=(d3d8)
-fi
+available=(d3d9 d3d10core d3d11 dxgi)
+[[ ! -f $src/src/d3d8/meson.build ]] || available+=(d3d8)
+read -r -a dlls <<< "${DXVK_DLLS:-${available[*]}}"
+for dll in "${dlls[@]}"; do
+    [[ " ${available[*]} " == *" $dll "* ]] || {
+        printf 'unsupported DXVK_DLLS entry: %s\n' "$dll" >&2; exit 1;
+    }
+done
+for dll in "${available[@]}"; do
+    enabled=false
+    [[ " ${dlls[*]} " != *" $dll "* ]] || enabled=true
+    meson_options+=("-Denable_${dll%core}=$enabled")
+done
 if [[ -n ${PS5_PE_LDFLAGS:-} ]]; then
     meson_options+=("-Dc_link_args=$PS5_PE_LDFLAGS" "-Dcpp_link_args=$PS5_PE_LDFLAGS")
 fi
@@ -138,5 +148,10 @@ EOF
     done
 }
 
-build_arch 32 i686-w64-mingw32 x86
-build_arch 64 x86_64-w64-mingw32 x86_64
+for bits in ${DXVK_ARCHS:-32 64}; do
+    case $bits in
+        32) build_arch 32 i686-w64-mingw32 x86 ;;
+        64) build_arch 64 x86_64-w64-mingw32 x86_64 ;;
+        *) printf 'unsupported DXVK_ARCHS entry: %s\n' "$bits" >&2; exit 1 ;;
+    esac
+done

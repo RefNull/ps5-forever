@@ -46,7 +46,8 @@ JOBS=8 bash ps5/release/build-linux.sh /absolute/SOURCE_ROOT 01.024.001
 The tag must equal the source `sce_sys/param.json` content version. Source
 validation and the full host suite run first. The script then builds the Docker
 image, the SDK, native title tooling/clean-room libc, patched RADV,
-whisper.cpp/ggml, FreeType, GnuTLS, Wine, vkd3d-proton, DXVK, the patched
+whisper.cpp/ggml, FreeType, GnuTLS, Wine, 64-bit vkd3d-proton and DXVK `dxgi`
+(the only graphics DLLs that ship), the patched
 AddonForge headless core, both B1 roles, and the release archive. Generated Wine
 server headers are restored on exit. Use an empty source/output directory for a
 cold build; rerunning can reuse outputs.
@@ -129,7 +130,8 @@ Linux release builds keep compiled outputs in `SOURCE_ROOT/.cache` so the
 self-hosted runner can reuse them even though checkout cleans
 `ps5-wow/ps5/build`. RADV, whisper.cpp/ggml, FreeType, GnuTLS, vkd3d-proton, DXVK
 and AddonForge entries are keyed by their pinned sources and downloads, build
-recipes, container image ID, and relevant toolchain environment. Every restored
+recipes, the Dockerfile (not the local image ID, so a rebuilt image or another
+machine reuses entries), and relevant toolchain environment. Every restored
 entry is checked against a SHA-256 manifest; a mismatch is a cache miss and
 rebuilds that stage. Wine keeps its out-of-tree build and host-tool trees there
 for incremental `make`, but reconfigures from an empty tree when its configure
@@ -211,8 +213,11 @@ Sans and Noto Sans Symbols 2 files.
 Wine and the graphics DLLs normally stamp `git describe`, which depends on
 unpublished tags/history and can silently fall back in shallow snapshots.
 After validating source fingerprints, the build generates a narrow Git wrapper
-that replays only the four known version-stamp commands from explicit
+that replays only the three known graphics version-stamp commands from explicit
 `describe`/`original_commit` provenance. All other Git commands use `/usr/bin/git`.
+Wine's ntdll string is the fork's annotated release tag on the pinned commit
+(`ps5-wine` `describe`, checked by `test-pins`); `build-wine.sh` takes it as
+`WINE_DESCRIBE` and fails if `dlls/ntdll/unix/version.c` differs.
 Generated headers in the build trees show these values.
 
 The SDK's `platform/tools/setup-sdk.sh` rebuilds the fork's headers, platform,
@@ -223,8 +228,9 @@ binaries. This is a pinned-source/pinned-binary bootstrap, not a fully
 bootstrapped source-only toolchain. No proprietary or workstation-only binary is
 supplied, and no private repository or development history is needed.
 
-Keep at least **30 GiB free** for sources, build output and Docker; a cold
-workspace used 13 GiB before Docker overhead. CI targets a self-hosted Linux
+A cold build needs about **30 GiB free**; once sources and the image exist,
+`build-linux.sh` requires 20 GiB if any stage lacks a cache entry for this
+build's key and 10 GiB if none does. CI targets a self-hosted Linux
 x86-64 runner and defaults to the container's `nproc` value (override with the
 `FOREVER_JOBS` repository variable). RADV Ninja and Wine's `install-lib` honour
 the same cap. The container runs with the invoking user's UID/GID, writes only

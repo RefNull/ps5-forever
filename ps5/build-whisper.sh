@@ -34,8 +34,7 @@ done
 unset CPPFLAGS LDFLAGS CFLAGS CXXFLAGS CMAKE_PREFIX_PATH
 export GIT_CEILING_DIRECTORIES=$work
 stamp=$({
-    printf '%s\n' "$pins" "$sdk" "$work" "$prefix" "$radv" \
-        "${FOREVER_CONTAINER_IMAGE_ID:-}"
+    printf '%s\n' "$pins" "$sdk" "$work" "$prefix" "$radv"
     ps5_sha256 "$here/build-whisper.sh" "$here/build-common.sh" "$here/whisper/"* \
         "$sdk/.ps5-sdk-revision" "$sdk/target/include/c++/v1/__config" \
         "$radv/lib/libvulkan_radeon.ps5.a" "$vulkan_headers/vulkan/vulkan.hpp" \

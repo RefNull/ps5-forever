@@ -428,6 +428,17 @@ def command_prune(args):
     prune_group(root / "wine", args.keep)
 
 
+def command_present(args):
+    """Exit 0 when a committed entry exists for the key (not verified here)."""
+    if args.stage == "wine":
+        entry = wine_entry(args)
+        state = read_json(entry / "state.json")
+        ready = bool(state and state.get("configured") and (entry / "build-manifest.json").is_file())
+    else:
+        ready = (stage_entry(args) / "manifest.json").is_file()
+    return 0 if ready else 1
+
+
 def command_size(args):
     root = cache_root(args.cache)
     total = 0
@@ -506,6 +517,12 @@ def main():
     add_cache_argument(prune)
     prune.add_argument("--keep", type=int, default=2)
     prune.set_defaults(function=command_prune)
+
+    present = subparsers.add_parser("present")
+    add_cache_argument(present)
+    present.add_argument("--stage", required=True)
+    present.add_argument("--key", required=True)
+    present.set_defaults(function=command_present)
 
     size = subparsers.add_parser("size")
     add_cache_argument(size)
