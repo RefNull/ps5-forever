@@ -2,21 +2,14 @@
  * payload owns the windows and publishes their surfaces through its hub. */
 #include <errno.h>
 #include <fcntl.h>
-#include <netinet/in.h>
 #include <poll.h>
 #include <signal.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdatomic.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
-#ifndef PS5_TITLE_EMBEDDED
-#include <ps5platform/agc.h>
-#include <ps5platform/klog.h>
-#endif
 #include <wine/ps5_desktop.h>
 #include "compositor.h"
 #include "display.h"
@@ -31,21 +24,11 @@
 #include "menu-diag.h"
 #endif
 
-#ifndef PS5_TITLE_EMBEDDED
-#define WINE_ELF "/app0/wine/lib/wine/x86_64-unix/wine"
-#define ELF_LOADER_PORT 9021
-#define MAX_ELF_BYTES (4u * 1024u * 1024u)
-#define ELF_CHUNK_BYTES 65536u
-#define WINE_LINE_BYTES 8192u
-#define CONNECT_TIMEOUT_US 3000000u
-#define SEND_TIMEOUT_US 10000000u
-#endif
 
 static int user = -1;
 static pthread_mutex_t message_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char pending_message[640];
 static int message_pending;
-#ifdef PS5_TITLE_EMBEDDED
 static struct forever_menu_state menu;
 static char pending_menu_status[FOREVER_MENU_STATUS_BYTES];
 static struct forever_addon_snapshot pending_addon_snapshot;
@@ -76,7 +59,6 @@ void pw_elf_sha256(const void *, size_t, uint8_t[32]);
 int forever_title_menu_action(enum forever_menu_command, int);
 void forever_title_voice_cancel(void);
 void io_log(const char *, ...) __attribute__((format(printf, 1, 2)));
-#endif
 
 /* Producers never touch compositor state; the desktop consumes the copy. */
 void title_desktop_message(const char *text)
@@ -87,7 +69,6 @@ void title_desktop_message(const char *text)
     pthread_mutex_unlock(&message_mutex);
 }
 
-#ifdef PS5_TITLE_EMBEDDED
 /* Menu workers publish copies; only the compositor thread mutates menu state. */
 void title_desktop_menu_status(const char *text, int notice)
 {
@@ -151,11 +132,7 @@ void title_desktop_addons_pause(const char *text)
     pending_addon_kind = 3;
     pthread_mutex_unlock(&message_mutex);
 }
-#endif
 
-#ifndef PS5_TITLE_EMBEDDED
-static int32_t agc = -1;   /* sceAgcInit's result: 0 once AGC is ready */
-#endif
 
 int sceSystemServiceHideSplashScreen(void);
 
@@ -166,7 +143,6 @@ static uint64_t now_us(void)
     return (uint64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
 }
 
-#ifdef PS5_TITLE_EMBEDDED
 static int installer_continue_armed(enum forever_installer_continue_stage stage)
 {
     return stage == FOREVER_INSTALLER_CONTINUE_PROCESS ||
@@ -289,216 +265,14 @@ static void title_desktop_installer_user_input(void)
     pthread_mutex_unlock(&message_mutex);
     installer_continue_log(result);
 }
-#endif
 
-#ifndef PS5_TITLE_EMBEDDED
-struct wine_log
-{
-    char line[WINE_LINE_BYTES];
-    size_t length;
-    int truncated;
-};
 
-static void wine_log_line(struct wine_log *log)
-{
-    /* One whole line on stderr, including when a TCP receive split it. The
-     * klog reader is asynchronous; its pipe cannot stall the frame thread. */
-    flockfile(stderr);
-    fputs("[wine] ", stderr);
-    fwrite(log->line, 1, log->length, stderr);
-    if (log->truncated) fputs(" [line truncated]", stderr);
-    fputc('\n', stderr);
-    funlockfile(stderr);
-    log->length = 0;
-    log->truncated = 0;
-}
-
-static void wine_log_bytes(struct wine_log *log, const char *bytes, size_t size)
-{
-    for (size_t i = 0; i < size; i++)
-    {
-        if (bytes[i] == '\n') wine_log_line(log);
-        else if (log->length < sizeof(log->line)) log->line[log->length++] = bytes[i];
-        else log->truncated = 1;
-    }
-}
-
-/* File reads and stderr's klog pipe are allowed to wait, so they live on a
- * single startup worker, never in the vblank/input loop. The loader socket
- * itself is non-blocking in both directions; the ELF is streamed from a
- * fixed buffer and its write side is closed only after every byte is sent. */
-static void *wine_launch(void *unused)
-{
-    static uint8_t elf[ELF_CHUNK_BYTES];
-    static struct wine_log log;
-    struct sockaddr_in address = {
-        .sin_len = sizeof(address),
-        .sin_family = AF_INET,
-        .sin_port = htons(ELF_LOADER_PORT),
-        .sin_addr.s_addr = htonl(INADDR_LOOPBACK),
-    };
-    struct stat status;
-    struct pollfd descriptor;
-    size_t start = 0, size = 0;
-    uint64_t remaining, deadline;
-    int fd = -1, socket_fd = -1, connecting = 0, sent = 0;
-    const char *step = "open Wine ELF";
-
-    (void)unused;
-    fd = open(WINE_ELF, O_RDONLY);
-    if (fd < 0) goto failed;
-    step = "stat Wine ELF";
-    if (fstat(fd, &status) < 0) goto failed;
-    if (!S_ISREG(status.st_mode) || status.st_size <= 0 || (uint64_t)status.st_size > MAX_ELF_BYTES)
-    {
-        errno = EFBIG;
-        goto failed;
-    }
-    remaining = (uint64_t)status.st_size;
-    /* A title may not make a socket non-blocking (fcntl F_SETFL: EACCES, M5
-     * runs): it stays blocking, connects at once (loopback answers or
-     * refuses immediately), and each send and receive below is non-blocking
-     * on its own (MSG_DONTWAIT). */
-    step = "create ELF-loader socket";
-    socket_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (socket_fd < 0) goto failed;
-    step = "connect ELF loader";
-    if (connect(socket_fd, (struct sockaddr *)&address, sizeof(address)))
-    {
-        if (errno != EINPROGRESS && errno != EWOULDBLOCK && errno != EINTR) goto failed;
-        connecting = 1;
-    }
-    deadline = now_us() + CONNECT_TIMEOUT_US;
-    descriptor = (struct pollfd){.fd = socket_fd, .events = POLLOUT};
-    while (connecting)
-    {
-        int result = poll(&descriptor, 1, 100);
-        if (result < 0)
-        {
-            if (errno == EINTR) continue;
-            goto failed;
-        }
-        if (result > 0 && descriptor.revents)
-        {
-            int error = 0;
-            socklen_t length = sizeof(error);
-            if (getsockopt(socket_fd, SOL_SOCKET, SO_ERROR, &error, &length) < 0) goto failed;
-            if (error || !(descriptor.revents & POLLOUT))
-            {
-                errno = error ? error : ECONNRESET;
-                goto failed;
-            }
-            connecting = 0;
-        }
-        else if (now_us() >= deadline)
-        {
-            errno = ETIMEDOUT;
-            goto failed;
-        }
-    }
-    deadline = now_us() + SEND_TIMEOUT_US;
-    for (;;)
-    {
-        if (!sent && start == size)
-        {
-            start = size = 0;
-            if (remaining)
-            {
-                size_t chunk = remaining < sizeof(elf) ? (size_t)remaining : sizeof(elf);
-                ssize_t count;
-                step = "read Wine ELF";
-                do count = read(fd, elf, chunk); while (count < 0 && errno == EINTR);
-                if (count <= 0)
-                {
-                    if (!count) errno = EIO;
-                    goto failed;
-                }
-                size = (size_t)count;
-                remaining -= size;
-            }
-            else
-            {
-                step = "finish ELF upload";
-                if (shutdown(socket_fd, SHUT_WR) < 0) goto failed;
-                close(fd);
-                fd = -1;
-                sent = 1;
-                fprintf(stderr, "Wine ELF sent (%lld bytes)\n", (long long)status.st_size);
-            }
-        }
-        descriptor.events = POLLIN | (sent ? 0 : POLLOUT);
-        step = "poll Wine output";
-        int result = poll(&descriptor, 1, 100);
-        if (result < 0)
-        {
-            if (errno == EINTR) continue;
-            goto failed;
-        }
-        if (descriptor.revents & POLLNVAL)
-        {
-            errno = EBADF;
-            goto failed;
-        }
-        if (descriptor.revents & (POLLIN | POLLHUP | POLLERR))
-        {
-            for (unsigned i = 0; i < 16; i++)
-            {
-                char output[4096];
-                step = "read Wine output";
-                ssize_t count = recv(socket_fd, output, sizeof(output), MSG_DONTWAIT);
-                if (count > 0) wine_log_bytes(&log, output, (size_t)count);
-                else if (!count) goto done;
-                else if (errno == EINTR) continue;
-                else if (errno == EAGAIN || errno == EWOULDBLOCK)
-                {
-                    if (descriptor.revents & POLLHUP) goto done;
-                    break;
-                }
-                else goto failed;
-            }
-        }
-        if (!sent && (descriptor.revents & POLLOUT))
-        {
-            step = "send Wine ELF";
-            ssize_t count = send(socket_fd, elf + start, size - start, MSG_DONTWAIT);
-            if (count > 0) start += (size_t)count;
-            else if (count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) goto failed;
-            else if (!count)
-            {
-                errno = EPIPE;
-                goto failed;
-            }
-        }
-        if (!sent && now_us() >= deadline)
-        {
-            step = "send Wine ELF";
-            errno = ETIMEDOUT;
-            goto failed;
-        }
-    }
-
-failed:
-    {
-        int error = errno;
-        if (log.length || log.truncated) wine_log_line(&log);
-        fprintf(stderr, "%s failed: errno=%d\n", step, error);
-    }
-done:
-    if (log.length || log.truncated) wine_log_line(&log);
-    if (fd >= 0) close(fd);
-    if (socket_fd >= 0) close(socket_fd);
-    return NULL;
-}
-#endif
-
-#ifdef PS5_TITLE_EMBEDDED
 static void maybe_start_menu_hint(uint64_t now)
 {
     if (menu_hint_started) return;
     menu_hint_started = 1;
     compositor_hint_start(now);
 }
-#endif
 
 static void on_hub_message(const void *message, void *context)
 {
@@ -512,10 +286,8 @@ static void on_hub_message(const void *message, void *context)
         struct ps5_desktop_window window;
         memcpy(&window, message, sizeof(window));
         compositor_window(&window);
-#ifdef PS5_TITLE_EMBEDDED
         if ((window.flags & PS5_DESKTOP_VISIBLE) && window.width && window.height)
             maybe_start_menu_hint(now_us());
-#endif
         break;
     }
     case PS5_DESKTOP_DESTROY:
@@ -548,11 +320,7 @@ static void on_hub_message(const void *message, void *context)
          * report password fields: L3+R3 open the keyboard there. */
         struct ps5_desktop_text_input input;
         memcpy(&input, message, sizeof(input));
-#ifdef PS5_TITLE_EMBEDDED
         if (user >= 0 && !forever_menu_is_open(&menu) && !input_draining)
-#else
-        if (user >= 0)
-#endif
             ime_show(user, input.active != 0);
         break;
     }
@@ -562,10 +330,8 @@ static void on_hub_message(const void *message, void *context)
 static void on_hub_disconnect(void *context)
 {
     (void)context;
-#ifdef PS5_TITLE_EMBEDDED
     memset(forwarded_keys, 0, sizeof(forwarded_keys));
     forwarded_mouse = 0;
-#endif
     compositor_reset();
 }
 
@@ -582,7 +348,6 @@ static uint32_t mouse_button(uint32_t code)
     }
 }
 
-#ifdef PS5_TITLE_EMBEDDED
 #define KEY_ENTER 0x28u
 #define KEY_ESCAPE 0x29u
 #define KEY_BACKSPACE 0x2au
@@ -601,7 +366,6 @@ static void menu_ime_finish(const char *text, int accepted);
 #ifdef FOREVER_MENU_DIAG
 static void menu_diag_log_state(const char *event);
 #endif
-#endif
 
 static void on_pointer(const struct pointer_event *event, void *context)
 {
@@ -611,7 +375,6 @@ static void on_pointer(const struct pointer_event *event, void *context)
     if (event->kind == POINTER_BUTTON && event->down && mouse_button(event->code))
         compositor_cursor_wake();
 
-#ifdef PS5_TITLE_EMBEDDED
     if (event->kind == POINTER_KEY && event->code == KEY_F12)
     {
         if (event->down && !event->repeat)
@@ -636,7 +399,6 @@ static void on_pointer(const struct pointer_event *event, void *context)
         }
         return;
     }
-#endif
     switch (event->kind)
     {
     case POINTER_KEY:
@@ -649,9 +411,7 @@ static void on_pointer(const struct pointer_event *event, void *context)
         };
         if (hub_send(&key, sizeof(key)))
         {
-#ifdef PS5_TITLE_EMBEDDED
             if (event->code < sizeof(forwarded_keys)) forwarded_keys[event->code] = !!event->down;
-#endif
         }
         return;
     }
@@ -678,19 +438,16 @@ static void on_pointer(const struct pointer_event *event, void *context)
     mouse.y = y;
     if (hub_send(&mouse, sizeof(mouse)))
     {
-#ifdef PS5_TITLE_EMBEDDED
         if (event->kind == POINTER_BUTTON)
         {
             if (event->down) forwarded_mouse |= event->code;
             else forwarded_mouse &= ~event->code;
         }
-#endif
     }
 }
 
 static void on_input(const struct input_event *event, void *context)
 {
-#ifdef PS5_TITLE_EMBEDDED
     uint32_t previous_pad = physical_pad;
     if (event->kind == INPUT_KEY && event->code < sizeof(physical_keys))
         physical_keys[event->code] = !!event->down;
@@ -761,10 +518,9 @@ static void on_input(const struct input_event *event, void *context)
         render_menu();
         return;
     }
-#endif
     pointer_input(event, on_pointer, context);
 }
-#if defined(PS5_TITLE_EMBEDDED) && defined(FOREVER_MENU_DIAG)
+#ifdef FOREVER_MENU_DIAG
 static void menu_diag_log_state(const char *event)
 {
     io_log("menu diag menu %s page=%d selected=%d",
@@ -968,7 +724,6 @@ static void menu_diag_dump(void)
 }
 #endif
 
-#ifdef PS5_TITLE_EMBEDDED
 
 static void render_menu(void)
 {
@@ -1269,7 +1024,6 @@ static void menu_key(uint32_t usage)
 #endif
     if (forever_menu_is_open(&menu)) render_menu();
 }
-#endif
 
 
 static void send_text(const uint16_t *text, size_t length)
@@ -1305,28 +1059,7 @@ static int send_key(uint32_t usage)
     return down && up;
 }
 
-#ifndef PS5_TITLE_EMBEDDED
-/* Offers the graphics pipe at a suspend point. The call sleeps while a Wine
- * process holds the pipe, and the kernel gives the pipe back to the title at
- * that process's next suspend point: called again only a frame later, it kept
- * the pipe for up to 16 ms each time while the Wine process slept
- * (m9d3d11 under this title, 2026-10-03). A call that slept means a Wine
- * process is drawing, so the pipe goes straight back; one that returned at once
- * means nobody waits, and the next offer comes a frame later. */
-static void *agc_yield(void *unused)
-{
-    (void)unused;
-    for (;;)
-    {
-        uint64_t start = now_us();
-        sceAgcSuspendPoint();
-        if (now_us() - start < 2000) usleep(16000);
-    }
-    return NULL;
-}
-#endif
 
-#ifdef PS5_TITLE_EMBEDDED
 static void title_desktop_installer_tick(uint64_t now)
 {
     enum forever_installer_continue_result result;
@@ -1343,7 +1076,6 @@ static void title_desktop_installer_tick(uint64_t now)
     if (send_key(KEY_ENTER)) io_log("forever: installer continue sent");
     else io_log("forever: installer continue skipped reason=input-unavailable");
 }
-#endif
 
 static int desktop_open(void)
 {
@@ -1358,7 +1090,6 @@ static int desktop_open(void)
     user = input_open(&result);
     fprintf(stderr, "input user=%d status=%#x %s\n", user, result, input_describe());
     pointer_init(DISPLAY_WIDTH, DISPLAY_HEIGHT);
-#ifdef PS5_TITLE_EMBEDDED
     struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 1, 0};
     forever_title_menu_load(&values);
     pointer_set_invert_scroll(values.invert_scroll);
@@ -1372,7 +1103,6 @@ static int desktop_open(void)
     title_desktop_installer_mode(0);
 #ifdef FOREVER_MENU_DIAG
     memset(&menu_diag, 0, sizeof(menu_diag));
-#endif
 #endif
     pointer_position(&x, &y);
     compositor_init(x, y);
@@ -1395,7 +1125,6 @@ static void desktop_frame(void)
         compositor_message(pending_message);
         message_pending = 0;
     }
-#ifdef PS5_TITLE_EMBEDDED
     if (pending_menu_status_kind)
     {
         if (pending_menu_status_kind == 3)
@@ -1432,20 +1161,16 @@ static void desktop_frame(void)
         pending_addon_kind = 0;
         render_menu();
     }
-#endif
     pthread_mutex_unlock(&message_mutex);
-#ifdef PS5_TITLE_EMBEDDED
     compositor_hint_tick(now);
-#endif
 
     input_poll(on_input, NULL);
-#if defined(PS5_TITLE_EMBEDDED) && defined(FOREVER_MENU_DIAG)
+#ifdef FOREVER_MENU_DIAG
     menu_diag_step(now);
 #endif
     pointer_frame(now, on_pointer, NULL);
     if (ime_poll(&edit))
     {
-#ifdef PS5_TITLE_EMBEDDED
         if (menu_ime_command)
         {
             char text[IME_MAX_TEXT * 4 + 1];
@@ -1459,7 +1184,6 @@ static void desktop_frame(void)
             memset(text, 0, sizeof(text));
         }
         else if (!forever_menu_is_open(&menu) && !input_draining)
-#endif
         {
             for (unsigned i = 0; i < edit.erase; i++) send_key(0x2a); /* Backspace */
             send_text(edit.text, edit.length);
@@ -1467,48 +1191,17 @@ static void desktop_frame(void)
         }
     }
     hub_poll(now);
-#ifdef PS5_TITLE_EMBEDDED
     title_desktop_installer_tick(now);
-#endif
     pointer_position(&x, &y);
     compositor_cursor(x, y);
     compositor_cursor_tick(now);
     compositor_compose();
-#if defined(PS5_TITLE_EMBEDDED) && defined(FOREVER_MENU_DIAG)
+#ifdef FOREVER_MENU_DIAG
     menu_diag_dump();
 #endif
     display_present();
 }
 
-#ifndef PS5_TITLE_EMBEDDED
-int main(void)
-{
-    pthread_t wine_thread, agc_thread;
-    int result;
-
-    ps5_klog_capture_stderr("[title] ");
-    /* A peer that goes away must not end the title: writes return EPIPE. */
-    signal(SIGPIPE, SIG_IGN);
-    setvbuf(stderr, NULL, _IOLBF, 0);
-    fprintf(stderr, "Wine desktop launcher\n");
-    if (desktop_open()) return 1;
-    /* A title owns the GPU's graphics pipe from its launch even when, like
-     * this one, it never submits work: a Wine process that opened the GPU
-     * then slept until the title's exit ("The other pcocess(163) uses gfx,
-     * and current(175) sleeps", 2026-10-03). The kernel hands the pipe over
-     * at a suspend point, and the caller then sleeps there until the pipe
-     * comes back: a thread of its own reaches one every frame, so the frame
-     * loop (input, cursor, windows) never waits. */
-    agc = sceAgcInit(PS5_AGC_INIT_VERSION);
-    fprintf(stderr, "agc init: %#x\n", (unsigned)agc);
-    if (!agc && (result = pthread_create(&agc_thread, NULL, agc_yield, NULL)))
-        fprintf(stderr, "AGC thread failed: %d\n", result);
-    result = pthread_create(&wine_thread, NULL, wine_launch, NULL);
-    if (result) fprintf(stderr, "Wine startup thread failed: %d\n", result);
-    else pthread_detach(wine_thread);
-    for (;;) desktop_frame();
-}
-#else
 static pthread_t desktop_thread;
 static _Atomic int desktop_running;
 static int desktop_started;
@@ -1549,4 +1242,3 @@ void title_desktop_stop(void)
     compositor_reset();
     desktop_started = 0;
 }
-#endif

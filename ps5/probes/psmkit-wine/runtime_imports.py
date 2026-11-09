@@ -10,17 +10,17 @@ from runtime_profiles import profile
 
 
 
-def module_paths(profile_name="p1w", gpu=False):
-    return profile(profile_name, {"headless": True, "gpu": True} if gpu else None)["module_paths"]
+def module_paths(gpu=False):
+    return profile("b1", {"headless": True, "gpu": True} if gpu else None)["module_paths"]
 
 
-def module_names(profile_name="p1w", gpu=False):
-    return tuple(sorted(module_paths(profile_name, gpu)))
+def module_names(gpu=False):
+    return tuple(sorted(module_paths(gpu)))
 
 
-def policy_module_names(profile_name="p1w"):
+def policy_module_names():
     """One reviewed B1 policy covers every B1 build, so it lists the GPU modules too."""
-    return module_names(profile_name, gpu=profile_name == "b1")
+    return module_names(gpu=True)
 
 NATIVE_ROLE_IMPORTS = {
     "parent": {
@@ -210,66 +210,65 @@ B1_GPU_NATIVE_IMPORTS = {
 }
 
 
-def native_role_imports(profile_name="p1w", *, headless=False, gpu=False):
-    if gpu and (profile_name != "b1" or not headless):
+def native_role_imports(*, headless=False, gpu=False):
+    if gpu and not headless:
         raise ValueError("GPU native imports require a headless B1 profile")
     roles = {role: dict(imports) for role, imports in NATIVE_ROLE_IMPORTS.items()}
-    if profile_name == "b1":
-        networking = {
-            "sceNetCtlInit": "libSceNetCtl.prx",
-            "sceNetCtlGetInfo": "libSceNetCtl.prx",
-            "sceSystemServiceParamGetString": "libSceSystemService.prx",
-        }
-        networking.update({name: "libSceNet.prx" for name in (
-            "sceNetErrnoLoc", "sceNetPoolCreate", "sceNetPoolDestroy",
-            "sceNetResolverCreate", "sceNetResolverDestroy",
-            "sceNetResolverStartAton", "sceNetResolverStartNtoa",
-        )})
-        # Only the parent imports them: a PsmKit child does not load these
-        # modules, so its wrappers forward the calls (B1_NATIVE_FORWARDED).
-        roles["parent"].update(networking)
-        roles["parent"]["sceSystemServiceLoadExec"] = "libSceSystemService.prx"
-        # B1 parents use public socket transport for payload launch and the
-        # bounded write-broker elfldr autostart. Common providers are reviewed
-        # by symbol, not as whole-provider role scopes.
-        roles["parent"].update({
-            "connect": "libkernel.prx", "setsockopt": "libkernel.prx",
-            "shutdown": "libkernel.prx",
-        })
-        roles["parent"].update({
-            "sceSystemServiceLaunchWebBrowser": "libSceSystemService.prx",
-            "sceUserServiceInitialize": "libSceUserService.prx",
-        })
-        roles["parent"].update({
-            "sceHttp2Init": "libSceHttp2.prx",
-            "sceHttp2Term": "libSceHttp2.prx",
-            "sceHttp2CreateTemplate": "libSceHttp2.prx",
-            "sceHttp2DeleteTemplate": "libSceHttp2.prx",
-            "sceHttp2CreateRequestWithURL": "libSceHttp2.prx",
-            "sceHttp2DeleteRequest": "libSceHttp2.prx",
-            "sceHttp2SendRequest": "libSceHttp2.prx",
-            "sceHttp2GetStatusCode": "libSceHttp2.prx",
-            "sceHttp2GetResponseContentLength": "libSceHttp2.prx",
-            "sceHttp2ReadData": "libSceHttp2.prx",
-            "sceHttp2AbortRequest": "libSceHttp2.prx",
-            "sceHttp2AddRequestHeader": "libSceHttp2.prx",
-            "sceHttp2GetAllResponseHeaders": "libSceHttp2.prx",
-            "sceHttp2SetAutoRedirect": "libSceHttp2.prx",
-            "sceHttp2SetResolveTimeOut": "libSceHttp2.prx",
-            "sceHttp2SetConnectTimeOut": "libSceHttp2.prx",
-            "sceHttp2SetRecvTimeOut": "libSceHttp2.prx",
-            "sceSslInit": "libSceSsl.prx",
-            "sceSslTerm": "libSceSsl.prx",
-            "sceNetInit": "libSceNet.prx",
-        })
-        if gpu:
-            # Game mode never downloads or launches the Battle.net installer.
-            roles["parent"] = {name: provider for name, provider in roles["parent"].items()
-                               if provider not in {"libSceHttp2.prx", "libSceSsl.prx"} and
-                               name != "sceNetInit"}
-            roles["parent"].update(B1_GPU_NATIVE_IMPORTS)
-        if not headless:
-            roles["parent"].update(B1_DESKTOP_NATIVE_IMPORTS)
+    networking = {
+        "sceNetCtlInit": "libSceNetCtl.prx",
+        "sceNetCtlGetInfo": "libSceNetCtl.prx",
+        "sceSystemServiceParamGetString": "libSceSystemService.prx",
+    }
+    networking.update({name: "libSceNet.prx" for name in (
+        "sceNetErrnoLoc", "sceNetPoolCreate", "sceNetPoolDestroy",
+        "sceNetResolverCreate", "sceNetResolverDestroy",
+        "sceNetResolverStartAton", "sceNetResolverStartNtoa",
+    )})
+    # Only the parent imports them: a PsmKit child does not load these
+    # modules, so its wrappers forward the calls (B1_NATIVE_FORWARDED).
+    roles["parent"].update(networking)
+    roles["parent"]["sceSystemServiceLoadExec"] = "libSceSystemService.prx"
+    # B1 parents use public socket transport for payload launch and the
+    # bounded write-broker elfldr autostart. Common providers are reviewed
+    # by symbol, not as whole-provider role scopes.
+    roles["parent"].update({
+        "connect": "libkernel.prx", "setsockopt": "libkernel.prx",
+        "shutdown": "libkernel.prx",
+    })
+    roles["parent"].update({
+        "sceSystemServiceLaunchWebBrowser": "libSceSystemService.prx",
+        "sceUserServiceInitialize": "libSceUserService.prx",
+    })
+    roles["parent"].update({
+        "sceHttp2Init": "libSceHttp2.prx",
+        "sceHttp2Term": "libSceHttp2.prx",
+        "sceHttp2CreateTemplate": "libSceHttp2.prx",
+        "sceHttp2DeleteTemplate": "libSceHttp2.prx",
+        "sceHttp2CreateRequestWithURL": "libSceHttp2.prx",
+        "sceHttp2DeleteRequest": "libSceHttp2.prx",
+        "sceHttp2SendRequest": "libSceHttp2.prx",
+        "sceHttp2GetStatusCode": "libSceHttp2.prx",
+        "sceHttp2GetResponseContentLength": "libSceHttp2.prx",
+        "sceHttp2ReadData": "libSceHttp2.prx",
+        "sceHttp2AbortRequest": "libSceHttp2.prx",
+        "sceHttp2AddRequestHeader": "libSceHttp2.prx",
+        "sceHttp2GetAllResponseHeaders": "libSceHttp2.prx",
+        "sceHttp2SetAutoRedirect": "libSceHttp2.prx",
+        "sceHttp2SetResolveTimeOut": "libSceHttp2.prx",
+        "sceHttp2SetConnectTimeOut": "libSceHttp2.prx",
+        "sceHttp2SetRecvTimeOut": "libSceHttp2.prx",
+        "sceSslInit": "libSceSsl.prx",
+        "sceSslTerm": "libSceSsl.prx",
+        "sceNetInit": "libSceNet.prx",
+    })
+    if gpu:
+        # Game mode never downloads or launches the Battle.net installer.
+        roles["parent"] = {name: provider for name, provider in roles["parent"].items()
+                           if provider not in {"libSceHttp2.prx", "libSceSsl.prx"} and
+                           name != "sceNetInit"}
+        roles["parent"].update(B1_GPU_NATIVE_IMPORTS)
+    if not headless:
+        roles["parent"].update(B1_DESKTOP_NATIVE_IMPORTS)
     return roles
 DL_OVERRIDES = {
     "dlopen": "pw_public_dlopen", "dlsym": "pw_public_dlsym",
@@ -395,22 +394,21 @@ IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 POLICY_FIELDS = {"module", "binding", "symbol", "target", "owner"}
 
 
-def candidate_ownership(name: str, *, profile_name="p1w") -> tuple[str, str]:
+def candidate_ownership(name: str) -> tuple[str, str]:
     """Classify explicit mappings; ordinary candidates remain unauthorized.
 
     Ownership is per symbol: the native import table binds each name once for
     every module. wineps5.so's payload transport imports (socket, connect,
     shm_open, ...) therefore share the other modules' owners; its title
     desktop branch never calls them."""
-    if profile_name == "b1":
-        if name in B1_WIN32U_EXPORTS:
-            return "title_win32u", name
-        if name in B1_NATIVE_RESOLVERS:
-            return "platform", B1_NATIVE_RESOLVERS[name]
-        if name in B1_NATIVE_FORWARDED:
-            return "platform", B1_NATIVE_FORWARDED[name]
-        if name in B1_PLATFORM_OVERRIDES:
-            return "platform", B1_PLATFORM_OVERRIDES[name]
+    if name in B1_WIN32U_EXPORTS:
+        return "title_win32u", name
+    if name in B1_NATIVE_RESOLVERS:
+        return "platform", B1_NATIVE_RESOLVERS[name]
+    if name in B1_NATIVE_FORWARDED:
+        return "platform", B1_NATIVE_FORWARDED[name]
+    if name in B1_PLATFORM_OVERRIDES:
+        return "platform", B1_PLATFORM_OVERRIDES[name]
     if name in TITLE_NTDLL_EXPORTS:
         return "title_ntdll", name
     if name in DL_OVERRIDES:
@@ -443,10 +441,9 @@ def _validate_symbol(name: str) -> None:
         raise ValueError(f"private import forbidden: {name}")
 
 
-def discovered_rows(module_symbols: dict[str, dict[str, set[str]]], *, profile_name="p1w",
-                    gpu=False) -> list[dict]:
+def discovered_rows(module_symbols: dict[str, dict[str, set[str]]], *, gpu=False) -> list[dict]:
     """Return the exact discovered module/binding/symbol surface."""
-    expected = module_names(profile_name, gpu)
+    expected = module_names(gpu)
     if tuple(sorted(module_symbols)) != expected:
         raise ValueError(
             f"dedicated module set drift: expected {list(expected)}, "
@@ -462,7 +459,7 @@ def discovered_rows(module_symbols: dict[str, dict[str, set[str]]], *, profile_n
         for binding in ("strong", "weak"):
             for symbol in sorted(bindings[binding]):
                 _validate_symbol(symbol)
-                owner, target = candidate_ownership(symbol, profile_name=profile_name)
+                owner, target = candidate_ownership(symbol)
                 rows.append({
                     "module": module,
                     "binding": binding,
@@ -482,7 +479,7 @@ def _reject_duplicate_json_keys(pairs):
     return result
 
 
-def _validate_policy_rows(rows, *, profile_name="p1w") -> list[dict]:
+def _validate_policy_rows(rows) -> list[dict]:
     if not isinstance(rows, list):
         raise ValueError("import policy imports must be a list")
     validated = []
@@ -496,13 +493,13 @@ def _validate_policy_rows(rows, *, profile_name="p1w") -> list[dict]:
         symbol = row["symbol"]
         target = row["target"]
         owner = row["owner"]
-        if module not in policy_module_names(profile_name) or binding not in {"strong", "weak"}:
+        if module not in policy_module_names() or binding not in {"strong", "weak"}:
             raise ValueError(f"import policy record {index} has an invalid module/binding")
         _validate_symbol(symbol)
         _validate_symbol(target)
         if owner not in OWNERS:
             raise ValueError(f"import policy record {index} has an invalid owner")
-        mapped_owner, mapped_target = candidate_ownership(symbol, profile_name=profile_name)
+        mapped_owner, mapped_target = candidate_ownership(symbol)
         if mapped_owner == UNREVIEWED_OWNER:
             expected_owner, expected_target = "fself_public_or_platform", symbol
         else:
@@ -525,41 +522,37 @@ def _validate_policy_rows(rows, *, profile_name="p1w") -> list[dict]:
     return validated
 
 
-def load_policy(path: Path, *, profile_name="p1w") -> list[dict]:
+def load_policy(path: Path) -> list[dict]:
     """Load the checked-in policy and reject non-canonical or implicit entries."""
     try:
         document = json.loads(path.read_text(), object_pairs_hook=_reject_duplicate_json_keys)
     except (OSError, json.JSONDecodeError, ValueError) as error:
         raise ValueError(f"cannot load reviewed import policy {path}: {error}") from error
-    fields = {"format", "modules", "imports", "native_roles"}
-    if profile_name == "b1":
-        fields.add("native_gpu_parent")
+    fields = {"format", "modules", "imports", "native_roles", "native_gpu_parent"}
     if not isinstance(document, dict) or set(document) != fields:
         raise ValueError("import policy has the wrong fields")
-    if document["format"] != 2 or document["modules"] != list(policy_module_names(profile_name)):
+    if document["format"] != 2 or document["modules"] != list(policy_module_names()):
         raise ValueError("unsupported import policy format or module set")
-    if document["native_roles"] != native_role_imports(profile_name):
+    if document["native_roles"] != native_role_imports():
         raise ValueError("native supervisor role/provider ownership drift")
-    if profile_name == "b1" and document["native_gpu_parent"] != B1_GPU_NATIVE_IMPORTS:
+    if document["native_gpu_parent"] != B1_GPU_NATIVE_IMPORTS:
         raise ValueError("GPU parent role/provider ownership drift")
-    return _validate_policy_rows(document["imports"], profile_name=profile_name)
+    return _validate_policy_rows(document["imports"])
 
 
-def make_candidate_manifest(module_symbols: dict[str, dict[str, set[str]]], *, profile_name="p1w",
-                            gpu=False) -> dict:
+def make_candidate_manifest(module_symbols: dict[str, dict[str, set[str]]], *, gpu=False) -> dict:
     """Create review data only. Its records are never consumed by the linker."""
     return {
         "format": 1,
         "generator": "runtime_imports.py",
         "authorization": "CANDIDATE_ONLY_NOT_AUTHORIZED",
-        "modules": list(module_names(profile_name, gpu)),
-        "imports": discovered_rows(module_symbols, profile_name=profile_name, gpu=gpu),
+        "modules": list(module_names(gpu)),
+        "imports": discovered_rows(module_symbols, gpu=gpu),
     }
 
 
-def write_candidate(module_symbols: dict[str, dict[str, set[str]]], path: Path, *, profile_name="p1w",
-                    gpu=False) -> dict:
-    manifest = make_candidate_manifest(module_symbols, profile_name=profile_name, gpu=gpu)
+def write_candidate(module_symbols: dict[str, dict[str, set[str]]], path: Path, *, gpu=False) -> dict:
+    manifest = make_candidate_manifest(module_symbols, gpu=gpu)
     path.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n")
     return manifest
 
@@ -591,13 +584,12 @@ def _merge_rows(rows: list[dict]) -> list[dict]:
 
 
 def make_records(
-        module_symbols: dict[str, dict[str, set[str]]], policy_rows: list[dict], *, profile_name="p1w",
-        gpu=False) -> list[dict]:
+        module_symbols: dict[str, dict[str, set[str]]], policy_rows: list[dict], *, gpu=False) -> list[dict]:
     """Authorize only an exact match to the reviewed policy, then merge it."""
-    policy_rows = _validate_policy_rows(policy_rows, profile_name=profile_name)
+    policy_rows = _validate_policy_rows(policy_rows)
     # Rows of modules this build does not ship (GPU modules in a launcher build) are not authority.
-    policy_rows = [row for row in policy_rows if row["module"] in module_names(profile_name, gpu)]
-    actual = discovered_rows(module_symbols, profile_name=profile_name, gpu=gpu)
+    policy_rows = [row for row in policy_rows if row["module"] in module_names(gpu)]
+    actual = discovered_rows(module_symbols, gpu=gpu)
     actual_surface = {
         (row["module"], row["binding"], row["symbol"]) for row in actual
     }
@@ -615,12 +607,12 @@ def make_records(
     return _merge_rows(policy_rows)
 
 
-def module_manifest(module_files: dict[str, Path], *, profile_name="p1w", gpu=False) -> list[dict]:
-    if tuple(sorted(module_files)) != module_names(profile_name, gpu):
-        raise ValueError(f"module manifest differs from the {profile_name} allow-list")
-    paths = module_paths(profile_name, gpu)
+def module_manifest(module_files: dict[str, Path], *, gpu=False) -> list[dict]:
+    if tuple(sorted(module_files)) != module_names(gpu):
+        raise ValueError("module manifest differs from the B1 allow-list")
+    paths = module_paths(gpu)
     result = []
-    for module in module_names(profile_name, gpu):
+    for module in module_names(gpu):
         path = module_files[module]
         data = path.read_bytes()
         result.append({
@@ -632,17 +624,17 @@ def module_manifest(module_files: dict[str, Path], *, profile_name="p1w", gpu=Fa
     return result
 
 
-def render_include(records: list[dict], modules: list[dict], *, profile_name="p1w", gpu=False) -> str:
+def render_include(records: list[dict], modules: list[dict], *, gpu=False) -> str:
     """Render the reviewed import table and immutable profile module identities."""
-    if [item.get("name") for item in modules] != list(module_names(profile_name, gpu)):
+    if [item.get("name") for item in modules] != list(module_names(gpu)):
         raise ValueError("generated title module manifest is incomplete or out of order")
     lines = [
-        f"/* Generated only after exact match to runtime-import-policy{'-b1' if profile_name == 'b1' else ''}.json. */",
+        "/* Generated only after exact match to runtime-import-policy-b1.json. */",
         "/* Do not edit or commit: build-runtime.py recreates this file. */",
         "static const struct pw_title_module_manifest title_modules[] = {",
     ]
     for item in modules:
-        if item.get("path") != module_paths(profile_name, gpu)[item["name"]]:
+        if item.get("path") != module_paths(gpu)[item["name"]]:
             raise ValueError(f"non-canonical title module path for {item['name']}")
         digest = bytes.fromhex(item["sha256"])
         if len(digest) != 32 or not isinstance(item.get("size"), int) or item["size"] < 0:
@@ -670,8 +662,8 @@ def render_include(records: list[dict], modules: list[dict], *, profile_name="p1
 
 def write_outputs(
         records: list[dict], modules: list[dict], include_path: Path,
-        manifest_path: Path, policy_sha256: str, *, profile_name="p1w", gpu=False) -> dict:
-    text = render_include(records, modules, profile_name=profile_name, gpu=gpu)
+        manifest_path: Path, policy_sha256: str, *, gpu=False) -> dict:
+    text = render_include(records, modules, gpu=gpu)
     include_path.write_text(text)
     manifest = {
         "format": 2,

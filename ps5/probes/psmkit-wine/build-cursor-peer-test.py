@@ -101,7 +101,7 @@ def check_title_imports(obj):
         'NtGdiCreateCompatibleDC', 'NtGdiDeleteObjectApp',
         '__wine_set_user_driver', 'update_display_cache',
     }
-    reviewed = {row['symbol'] for row in load_policy(here / 'runtime-import-policy-b1.json', profile_name='b1')
+    reviewed = {row['symbol'] for row in load_policy(here / 'runtime-import-policy-b1.json')
                 if row['module'] == 'win32u.so'}
     extra = undefined - internal - reviewed
     if extra:

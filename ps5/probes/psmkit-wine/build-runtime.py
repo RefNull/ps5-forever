@@ -32,60 +32,54 @@ gnutls_stage_lib = Path(str(here / '../../build/gnutls-stage') + str(sdk_root) +
                         '/target/user/homebrew/lib')
 parser = argparse.ArgumentParser()
 parser.add_argument('--wine-build', type=Path, default=here / '../../build/wine-ps5-build')
-parser.add_argument('--profile', choices=('p1w', 'b1'), default='p1w')
 parser.add_argument('--profile-config', type=Path)
 parser.add_argument('--quarantine', type=Path,
     help='isolated intermediate output tree (defaults to the selected profile tree)')
 parser.add_argument('--gnutls-lib', type=Path, default=gnutls_stage_lib,
-    help="ps5/build-gnutls.sh's staged static archives (B1 only)")
+    help="ps5/build-gnutls.sh's staged static archives")
 parser.add_argument('--freetype-build', type=Path, default=here / '../../build/freetype-ps5-build',
-    help="ps5/build-freetype.sh's CMake build tree, whose objects are relinked (B1 only)")
+    help="ps5/build-freetype.sh's CMake build tree, whose objects are relinked")
 parser.add_argument('--writebroker-elf', type=Path,
     help='bounded payload ELF shipped as B1 title data')
 parser.add_argument('--addon-worker-elf', type=Path,
     help='bounded native add-on worker ELF shipped as B1 title data')
 parser.add_argument('--vkd3d-dlls', type=Path, default=here / '../../build/vkd3d-proton-64/dlls',
-    help="ps5/build-vkd3d-proton.sh's 64-bit d3d12.dll and d3d12core.dll (B1 only)")
+    help="ps5/build-vkd3d-proton.sh's 64-bit d3d12.dll and d3d12core.dll")
 parser.add_argument('--dxvk-dlls', type=Path, default=here / '../../build/dxvk-64/dlls',
-    help="ps5/build-dxvk.sh's 64-bit dxgi.dll, the game's native dxgi (B1 only)")
+    help="ps5/build-dxvk.sh's 64-bit dxgi.dll, the game's native dxgi")
 args = parser.parse_args()
 build = args.wine_build.resolve()
-selected = profile(args.profile, json.loads(args.profile_config.read_text()) if args.profile_config else None)
+selected = profile('b1', json.loads(args.profile_config.read_text()) if args.profile_config else None)
 gnutls_lib = args.gnutls_lib.resolve()
 freetype_build = args.freetype_build.resolve()
 writebroker_elf = args.writebroker_elf.resolve() if args.writebroker_elf else None
 addon_worker_elf = args.addon_worker_elf.resolve() if args.addon_worker_elf else None
-if args.profile == 'b1':
-    for label, payload, maximum in (
-            ('write broker', writebroker_elf, WRITEBROKER_MAX_BYTES),
-            ('add-on worker', addon_worker_elf, ADDON_WORKER_MAX_BYTES)):
-        if payload is None or payload.is_symlink() or not payload.is_file():
-            raise SystemExit(f'B1 {label} ELF missing or unsafe: {payload}')
-        size = payload.stat().st_size
-        if not 0 < size <= maximum:
-            raise SystemExit(f'B1 {label} ELF exceeds bounded size: {size}')
-        with payload.open('rb') as source:
-            if source.read(4) != b'\x7fELF':
-                raise SystemExit(f'B1 {label} payload is not an ELF: {payload}')
-elif writebroker_elf is not None or addon_worker_elf is not None:
-    raise SystemExit('payload helper ELFs are B1-only')
-profile_leaf = 'title-psmkit-wine-b1' if args.profile == 'b1' else 'title-psmkit-wine-runtime'
+for label, payload, maximum in (
+        ('write broker', writebroker_elf, WRITEBROKER_MAX_BYTES),
+        ('add-on worker', addon_worker_elf, ADDON_WORKER_MAX_BYTES)):
+    if payload is None or payload.is_symlink() or not payload.is_file():
+        raise SystemExit(f'B1 {label} ELF missing or unsafe: {payload}')
+    size = payload.stat().st_size
+    if not 0 < size <= maximum:
+        raise SystemExit(f'B1 {label} ELF exceeds bounded size: {size}')
+    with payload.open('rb') as source:
+        if source.read(4) != b'\x7fELF':
+            raise SystemExit(f'B1 {label} payload is not an ELF: {payload}')
+profile_leaf = 'title-psmkit-wine-b1'
 quarantine = (args.quarantine or (here / '../../build' / (profile_leaf + '-quarantine'))).resolve()
 work = quarantine / 'child-work'
 child_out = quarantine / 'child-title'
 parent_work = quarantine / 'parent-work'
 parent_out = quarantine / 'parent-title'
-policy_path = here / ('runtime-import-policy-b1.json' if args.profile == 'b1' else 'runtime-import-policy.json')
+policy_path = here / 'runtime-import-policy-b1.json'
 llvm = Path(os.environ.get('LLVM_BIN', '/opt/homebrew/opt/llvm/bin' if
                           os.uname().sysname == 'Darwin' else '/usr/lib/llvm-19/bin'))
+# netdb.o: resolvers. nl_langinfo.o: the charset query GnuTLS's gnulib
+# makes (no raw syscall). Its C-locale ctype entry points are in
+# native-entry.c: SDK no-locale.o needs wide-string calls the title lacks.
 safe_libc_members = (
-    'assert.o', 'passwd.o', 'termios.o', 'times.o',
+    'assert.o', 'passwd.o', 'termios.o', 'times.o', 'netdb.o', 'nl_langinfo.o',
 )
-if args.profile == 'b1':
-    # netdb.o: resolvers. nl_langinfo.o: the charset query GnuTLS's gnulib
-    # makes (no raw syscall). Its C-locale ctype entry points are in
-    # native-entry.c: SDK no-locale.o needs wide-string calls the title lacks.
-    safe_libc_members += ('netdb.o', 'nl_langinfo.o')
 for owned in (work, child_out, parent_work, parent_out):
     if owned.is_symlink() or owned.is_file():
         owned.unlink()
@@ -172,14 +166,6 @@ def compiler_from(entry):
             directory = Path(entry.get('directory', build))
             return compiler if compiler.is_absolute() else (directory / compiler).resolve()
     raise SystemExit('compile command does not identify prospero-clang')
-
-
-def soname(path):
-    text = subprocess.check_output([str(llvm / 'llvm-readelf'), '-d', str(path)], text=True)
-    match = re.search(r'\(SONAME\).*\[([^]]+)\]', text)
-    if not match:
-        raise SystemExit(f'missing DT_SONAME in {path}')
-    return match.group(1)
 
 
 def harden_module_headers(path):
@@ -344,7 +330,7 @@ loader_entry, loader_command = compile_entry(
      '-Ddlopen=pw_public_dlopen', '-Ddlsym=pw_public_dlsym',
      '-Ddlclose=pw_public_dlclose', '-Ddlerror=pw_public_dlerror',
      '-Ddladdr=pw_public_dladdr',
-     *([f'-DWINE_PS5_TITLE_ROOT={json.dumps(selected["root"])}'] if args.profile == 'b1' else [])],
+     f'-DWINE_PS5_TITLE_ROOT={json.dumps(selected["root"])}'],
     '/loader/main.o')
 compiler = compiler_from(loader_entry)
 
@@ -365,24 +351,22 @@ if output_path(command_for(signal_entry), Path(signal_entry.get('directory', bui
     raise SystemExit('signal compile command output does not match ntdll object manifest')
 ntdll_title_objects = [signal_object if path == signal_matches[0] else path for path in ntdll_objects]
 variant_compiles = {}
-if args.profile == 'b1':
-    for stem, extra in (
-            ('server', [f'-DWINE_PS5_TITLE_ROOT={json.dumps(selected["root"])}']),
-            ('env', ['-DWINE_PS5_TITLE_PARENT_CWD=({const char *cwd=getenv("WINEPS5_TITLE_PARENT_CWD"); if (!cwd) abort(); cwd;})'])):
-        destination = work / f'{stem}-b1.o'
-        _, command = compile_entry(
-            entries, f'/dlls/ntdll/unix/{stem}.c', destination, extra,
-            f'/dlls/ntdll/unix/{stem}.o')
-        original = (build / f'dlls/ntdll/unix/{stem}.o').resolve()
-        if original not in ntdll_title_objects:
-            raise SystemExit(f'B1 replacement object not in ntdll manifest: {original}')
-        ntdll_title_objects = [destination if path == original else path for path in ntdll_title_objects]
-        variant_compiles[stem] = command
+for stem, extra in (
+        ('server', [f'-DWINE_PS5_TITLE_ROOT={json.dumps(selected["root"])}']),
+        ('env', ['-DWINE_PS5_TITLE_PARENT_CWD=({const char *cwd=getenv("WINEPS5_TITLE_PARENT_CWD"); if (!cwd) abort(); cwd;})'])):
+    destination = work / f'{stem}-b1.o'
+    _, command = compile_entry(
+        entries, f'/dlls/ntdll/unix/{stem}.c', destination, extra,
+        f'/dlls/ntdll/unix/{stem}.o')
+    original = (build / f'dlls/ntdll/unix/{stem}.o').resolve()
+    if original not in ntdll_title_objects:
+        raise SystemExit(f'B1 replacement object not in ntdll manifest: {original}')
+    ntdll_title_objects = [destination if path == original else path for path in ntdll_title_objects]
+    variant_compiles[stem] = command
 ntdll_title = work / 'ntdll-title.so'
 ntdll_link = link_module(
     compiler, ntdll_title,
-    selected['remote_root'] + '/lib/wine/x86_64-unix/ntdll.so' if args.profile == 'b1'
-    else soname(build / 'dlls/ntdll/ntdll.so'), ntdll_title_objects)
+    selected['remote_root'] + '/lib/wine/x86_64-unix/ntdll.so', ntdll_title_objects)
 
 server_objects = exact_object_manifest(entries, 'server')
 main_matches = [path for path in server_objects if path.as_posix().endswith('/server/main.o')]
@@ -401,17 +385,16 @@ server_link = link_module(
 # No SDK libraries or payload ntdll DT_NEEDED: Wine's ntdll exports resolve
 # against the already admitted title module in the custom loader.
 win32u_objects = exact_object_manifest(entries, 'dlls/win32u')
-if args.profile == 'b1':
-    for stem in ('driver', 'winstation'):
-        destination = work / f'win32u-{stem}-b1.o'
-        _, command = compile_entry(
-            entries, f'/dlls/win32u/{stem}.c', destination, ['-DWINE_PS5_TITLE_B1'],
-            f'/dlls/win32u/{stem}.o')
-        original = (build / f'dlls/win32u/{stem}.o').resolve()
-        if original not in win32u_objects:
-            raise SystemExit(f'B1 replacement object not in win32u manifest: {original}')
-        win32u_objects = [destination if path == original else path for path in win32u_objects]
-        variant_compiles['win32u_' + stem] = command
+for stem in ('driver', 'winstation'):
+    destination = work / f'win32u-{stem}-b1.o'
+    _, command = compile_entry(
+        entries, f'/dlls/win32u/{stem}.c', destination, ['-DWINE_PS5_TITLE_B1'],
+        f'/dlls/win32u/{stem}.o')
+    original = (build / f'dlls/win32u/{stem}.o').resolve()
+    if original not in win32u_objects:
+        raise SystemExit(f'B1 replacement object not in win32u manifest: {original}')
+    win32u_objects = [destination if path == original else path for path in win32u_objects]
+    variant_compiles['win32u_' + stem] = command
 win32u_title = work / 'win32u-title.so'
 win32u_link = link_module(
     compiler, win32u_title, selected['module_paths']['win32u.so'],
@@ -446,85 +429,83 @@ module_files = {
     'wineserver.so': server_title,
 }
 extra_build = {}
-if args.profile == 'b1':
-    for stem in extra_modules:
-        objects = exact_object_manifest(entries, module_directory(stem))
-        if stem == 'crypt32':
-            # Root certificates come from the title root's share/wine/cacert.pem.
-            variant = work / 'crypt32-unixlib-b1.o'
-            _, command = compile_entry(
-                entries, '/dlls/crypt32/unixlib.c', variant,
-                [f'-DWINE_PS5_TITLE_ROOT={json.dumps(selected["root"])}'], '/dlls/crypt32/unixlib.o')
-            original = (build / 'dlls/crypt32/unixlib.o').resolve()
-            if original not in objects:
-                raise SystemExit(f'B1 replacement object not in crypt32 manifest: {original}')
-            objects = [variant if path == original else path for path in objects]
-            variant_compiles['crypt32_unixlib'] = command
-        destination = work / f'{stem}-title.so'
-        link = link_module(compiler, destination, selected['module_paths'][stem + '.so'], objects)
-        module_files[stem + '.so'] = destination
-        extra_build[stem] = {
-            'objects': [str(path.relative_to(build)) if path.is_relative_to(build) else path.name
-                        for path in objects],
-            'output': destination.name, 'link': link,
-        }
-    # GnuTLS from ps5/build-gnutls.sh's static archives (no raw syscalls),
-    # linked without the SDK libc like every other title module.
-    archives = [gnutls_lib / f'lib{name}.a' for name in ('gnutls', 'hogweed', 'nettle', 'tasn1')]
-    missing = [str(path) for path in archives if not path.is_file()]
-    if missing:
-        raise SystemExit(f'GnuTLS static archives missing (run ps5/build-gnutls.sh): {missing}')
-    # Verified title modules carry no constructors. GnuTLS's only pair is
-    # global.o's implicit gnutls_global_init/deinit; secur32, bcrypt and
-    # crypt32 all call gnutls_global_init themselves. Link a copy without it.
-    gnutls_archive = work / 'libgnutls-noctor.a'
-    shutil.copyfile(archives[0], gnutls_archive)
-    global_object = work / 'global.o'
-    global_object.write_bytes(subprocess.check_output(
-        [str(archive_tool), 'p', str(archives[0]), 'global.o']))
-    run([objcopy, '-R', '.ctors', '-R', '.rela.ctors', '-R', '.dtors', '-R', '.rela.dtors',
-         global_object])
-    run([archive_tool, 'r', gnutls_archive, global_object])
-    destination = work / 'libgnutls-title.so'
-    link = link_module(compiler, destination, selected['module_paths']['libgnutls.so'], [
-        '-Wl,--whole-archive', gnutls_archive, '-Wl,--no-whole-archive',
-        '-Wl,--start-group', *archives[1:], '-Wl,--end-group'])
-    module_files['libgnutls.so'] = destination
-    extra_build['libgnutls'] = {
-        'archives': {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in archives},
+for stem in extra_modules:
+    objects = exact_object_manifest(entries, module_directory(stem))
+    if stem == 'crypt32':
+        # Root certificates come from the title root's share/wine/cacert.pem.
+        variant = work / 'crypt32-unixlib-b1.o'
+        _, command = compile_entry(
+            entries, '/dlls/crypt32/unixlib.c', variant,
+            [f'-DWINE_PS5_TITLE_ROOT={json.dumps(selected["root"])}'], '/dlls/crypt32/unixlib.o')
+        original = (build / 'dlls/crypt32/unixlib.o').resolve()
+        if original not in objects:
+            raise SystemExit(f'B1 replacement object not in crypt32 manifest: {original}')
+        objects = [variant if path == original else path for path in objects]
+        variant_compiles['crypt32_unixlib'] = command
+    destination = work / f'{stem}-title.so'
+    link = link_module(compiler, destination, selected['module_paths'][stem + '.so'], objects)
+    module_files[stem + '.so'] = destination
+    extra_build[stem] = {
+        'objects': [str(path.relative_to(build)) if path.is_relative_to(build) else path.name
+                    for path in objects],
         'output': destination.name, 'link': link,
     }
-    # FreeType from ps5/build-freetype.sh's own objects (built position-
-    # independent for its shared library; no raw syscall instruction), relinked
-    # without the SDK libc like every other title module.
-    freetype_objects = sorted((freetype_build / 'freetype/CMakeFiles/freetype.dir').rglob('*.o'))
-    if not freetype_objects:
-        raise SystemExit(f'FreeType objects missing (run ps5/build-freetype.sh): {freetype_build}')
-    destination = work / 'libfreetype-title.so'
-    link = link_module(compiler, destination, selected['module_paths']['libfreetype.so'],
-                       freetype_objects)
-    module_files['libfreetype.so'] = destination
-    extra_build['libfreetype'] = {
-        'objects': {str(path.relative_to(freetype_build)): hashlib.sha256(path.read_bytes()).hexdigest()
-                    for path in freetype_objects},
-        'output': destination.name, 'link': link,
-    }
+# GnuTLS from ps5/build-gnutls.sh's static archives (no raw syscalls),
+# linked without the SDK libc like every other title module.
+archives = [gnutls_lib / f'lib{name}.a' for name in ('gnutls', 'hogweed', 'nettle', 'tasn1')]
+missing = [str(path) for path in archives if not path.is_file()]
+if missing:
+    raise SystemExit(f'GnuTLS static archives missing (run ps5/build-gnutls.sh): {missing}')
+# Verified title modules carry no constructors. GnuTLS's only pair is
+# global.o's implicit gnutls_global_init/deinit; secur32, bcrypt and
+# crypt32 all call gnutls_global_init themselves. Link a copy without it.
+gnutls_archive = work / 'libgnutls-noctor.a'
+shutil.copyfile(archives[0], gnutls_archive)
+global_object = work / 'global.o'
+global_object.write_bytes(subprocess.check_output(
+    [str(archive_tool), 'p', str(archives[0]), 'global.o']))
+run([objcopy, '-R', '.ctors', '-R', '.rela.ctors', '-R', '.dtors', '-R', '.rela.dtors',
+     global_object])
+run([archive_tool, 'r', gnutls_archive, global_object])
+destination = work / 'libgnutls-title.so'
+link = link_module(compiler, destination, selected['module_paths']['libgnutls.so'], [
+    '-Wl,--whole-archive', gnutls_archive, '-Wl,--no-whole-archive',
+    '-Wl,--start-group', *archives[1:], '-Wl,--end-group'])
+module_files['libgnutls.so'] = destination
+extra_build['libgnutls'] = {
+    'archives': {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in archives},
+    'output': destination.name, 'link': link,
+}
+# FreeType from ps5/build-freetype.sh's own objects (built position-
+# independent for its shared library; no raw syscall instruction), relinked
+# without the SDK libc like every other title module.
+freetype_objects = sorted((freetype_build / 'freetype/CMakeFiles/freetype.dir').rglob('*.o'))
+if not freetype_objects:
+    raise SystemExit(f'FreeType objects missing (run ps5/build-freetype.sh): {freetype_build}')
+destination = work / 'libfreetype-title.so'
+link = link_module(compiler, destination, selected['module_paths']['libfreetype.so'],
+                   freetype_objects)
+module_files['libfreetype.so'] = destination
+extra_build['libfreetype'] = {
+    'objects': {str(path.relative_to(freetype_build)): hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in freetype_objects},
+    'output': destination.name, 'link': link,
+}
 module_symbols = {name: undefined_symbols(path) for name, path in module_files.items()}
 candidate_path = work / 'title-imports-candidate.json'
 gpu = selected.get('gpu', False)
-write_candidate(module_symbols, candidate_path, profile_name=args.profile, gpu=gpu)
+write_candidate(module_symbols, candidate_path, gpu=gpu)
 try:
-    policy_rows = load_policy(policy_path, profile_name=args.profile)
-    records = make_records(module_symbols, policy_rows, profile_name=args.profile, gpu=gpu)
+    policy_rows = load_policy(policy_path)
+    records = make_records(module_symbols, policy_rows, gpu=gpu)
 except ValueError as error:
     raise SystemExit(str(error)) from error
-title_modules = module_manifest(module_files, profile_name=args.profile, gpu=gpu)
+title_modules = module_manifest(module_files, gpu=gpu)
 include_path = work / 'title-imports.inc'
 imports_manifest = work / 'title-imports.json'
 policy_sha256 = hashlib.sha256(policy_path.read_bytes()).hexdigest()
 generated_imports = write_outputs(
-    records, title_modules, include_path, imports_manifest, policy_sha256,
-    profile_name=args.profile, gpu=gpu)
+    records, title_modules, include_path, imports_manifest, policy_sha256, gpu=gpu)
 profile_defines = ''.join(
     f'#define PW_RUNTIME_{macro} {json.dumps(value)}\n'
     for macro, value in (
@@ -569,31 +550,29 @@ profile_defines += '#define PW_RUNTIME_VKD3D_PRESENT_MODE ' + json.dumps(
 profile_defines += '#define PW_RUNTIME_CHILD_PATH ' + json.dumps(
     '/app0/game-child.bin' if selected.get('gpu', False) else
     '/app0/psmkit-wine-runtime-child.bin') + '\n'
-if args.profile == 'b1':
-    profile_defines += '#define PW_RUNTIME_B1 1\n'
-    profile_defines += f'#define PW_RUNTIME_HEADLESS {1 if selected["headless"] else 0}\n'
-    profile_defines += ''.join(
-        f'#define PW_RUNTIME_{key.upper()} {json.dumps(selected[key])}\n'
-        for key in ('installer_url', 'installer_fallback_url', 'installer_dos', 'launcher_unix', 'installer_unix',
-                    'installer_cwd'))
-    profile_defines += '#define PW_RUNTIME_PAYLOAD_PROGRAMS ' + json.dumps(';'.join(selected['payload_programs'])) + '\n'
-    profile_defines += '#define PW_RUNTIME_REFUSED_PROGRAMS ' + json.dumps(';'.join(selected['refused_programs'])) + '\n'
-    profile_defines += '#define PW_RUNTIME_PREFETCH_HOSTS ' + json.dumps(';'.join(selected['prefetch_hosts'])) + '\n'
-    profile_defines += '#define PW_RUNTIME_DNS_UPSTREAMS {' + (','.join(
-        '0x%08xu' % int.from_bytes(bytes(int(part) for part in server.split('.')), 'big')
-        for server in selected['dns_upstreams']) or '0') + '}\n'
-    profile_defines += '#define PW_RUNTIME_PAYLOAD_DLL_OVERRIDES ' + json.dumps(selected['payload_dll_overrides']) + '\n'
-    profile_defines += '#define PW_RUNTIME_BROWSER_SWITCHES ' + json.dumps(';'.join(
-        program + ' ' + ' '.join(switches) for program, switches in selected['browser_switches'].items())) + '\n'
-    profile_defines += '#define PW_RUNTIME_WRITEBROKER_ELF ' + json.dumps(
-        selected['root'] + '/' + WRITEBROKER_RELATIVE) + '\n'
-    profile_defines += '#define PW_RUNTIME_ADDON_WORKER_ELF ' + json.dumps(
-        selected['root'] + '/' + ADDON_WORKER_RELATIVE) + '\n'
-    # Runtime-game profiles deliberately generate no channel-specific argv.
-    # native-entry requires the validated Play/direct-game wire before Wine.
-    profile_defines += '#define PW_RUNTIME_PARENT_ARGV {' + ','.join(
-        '(char *)' + json.dumps(value) for value in selected['argv']) + ',NULL}\n'
-    profile_defines += f'#define PW_RUNTIME_PARENT_ARGC {len(selected["argv"])}\n'
+profile_defines += f'#define PW_RUNTIME_HEADLESS {1 if selected["headless"] else 0}\n'
+profile_defines += ''.join(
+    f'#define PW_RUNTIME_{key.upper()} {json.dumps(selected[key])}\n'
+    for key in ('installer_url', 'installer_fallback_url', 'installer_dos', 'launcher_unix', 'installer_unix',
+                'installer_cwd'))
+profile_defines += '#define PW_RUNTIME_PAYLOAD_PROGRAMS ' + json.dumps(';'.join(selected['payload_programs'])) + '\n'
+profile_defines += '#define PW_RUNTIME_REFUSED_PROGRAMS ' + json.dumps(';'.join(selected['refused_programs'])) + '\n'
+profile_defines += '#define PW_RUNTIME_PREFETCH_HOSTS ' + json.dumps(';'.join(selected['prefetch_hosts'])) + '\n'
+profile_defines += '#define PW_RUNTIME_DNS_UPSTREAMS {' + (','.join(
+    '0x%08xu' % int.from_bytes(bytes(int(part) for part in server.split('.')), 'big')
+    for server in selected['dns_upstreams']) or '0') + '}\n'
+profile_defines += '#define PW_RUNTIME_PAYLOAD_DLL_OVERRIDES ' + json.dumps(selected['payload_dll_overrides']) + '\n'
+profile_defines += '#define PW_RUNTIME_BROWSER_SWITCHES ' + json.dumps(';'.join(
+    program + ' ' + ' '.join(switches) for program, switches in selected['browser_switches'].items())) + '\n'
+profile_defines += '#define PW_RUNTIME_WRITEBROKER_ELF ' + json.dumps(
+    selected['root'] + '/' + WRITEBROKER_RELATIVE) + '\n'
+profile_defines += '#define PW_RUNTIME_ADDON_WORKER_ELF ' + json.dumps(
+    selected['root'] + '/' + ADDON_WORKER_RELATIVE) + '\n'
+# Runtime-game profiles deliberately generate no channel-specific argv.
+# native-entry requires the validated Play/direct-game wire before Wine.
+profile_defines += '#define PW_RUNTIME_PARENT_ARGV {' + ','.join(
+    '(char *)' + json.dumps(value) for value in selected['argv']) + ',NULL}\n'
+profile_defines += f'#define PW_RUNTIME_PARENT_ARGC {len(selected["argv"])}\n'
 wrapper = work / 'native-entry-generated.c'
 wrapper.write_text(
     '#include <stddef.h>\n#include <wine/ps5_title.h>\n' + profile_defines +
@@ -604,19 +583,18 @@ wrapper.write_text(
 # thread, input, supervisor) take the same queue as the Unix modules'
 # sceKernelDebugOutText import (runtime_imports.B1_PLATFORM_OVERRIDES).
 io_sources = [here / '../localproc/psmkit-io.c']
-if args.profile == 'b1':
-    io_wrapper = work / 'psmkit-io-title.c'
-    io_wrapper.write_text(
-        '#define sceKernelDebugOutText pw_title_klog_text\n'
-        f'#include {json.dumps(str(here / "../localproc/psmkit-io.c"))}\n')
-    io_sources = [io_wrapper, here / 'title-log.c']
+io_wrapper = work / 'psmkit-io-title.c'
+io_wrapper.write_text(
+    '#define sceKernelDebugOutText pw_title_klog_text\n'
+    f'#include {json.dumps(str(here / "../localproc/psmkit-io.c"))}\n')
+io_sources = [io_wrapper, here / 'title-log.c']
 
 
 loader_source = Path(loader_entry['file'])
 if not loader_source.is_absolute():
     loader_source = Path(loader_entry.get('directory', build)) / loader_source
 diagnostic_menu = (
-    os.environ.get('FOREVER_MENU_DIAG') == '1' and args.profile == 'b1' and
+    os.environ.get('FOREVER_MENU_DIAG') == '1' and
     not selected['headless'] and not selected.get('gpu', False))
 env = dict(os.environ, PS5_TITLE_WORK=str(work), PS5_TITLE_RADV='',
            WINE_SRC=str(loader_source.resolve().parents[1]))
@@ -629,8 +607,7 @@ patched_elf = work / 'localproc.elf'
 child_fself = child_out / 'eboot.bin'
 # Title SDK fields: firmware 11.60 refuses a child carrying 5.50's local-helper
 # SDK pair (PRX_SCE_MODULE_LOAD_ERROR); the title's pair runs on 5.50 and 11.60.
-run(['python3', here / '../localproc/patch-local-helper.py',
-     '--sdk', 'title', converted_elf, patched_elf])
+run(['python3', here / '../localproc/patch-local-helper.py', converted_elf, patched_elf])
 tool = (here / '../../../../../PS5_Vulkan/build/host/ps5-native-tool').resolve()
 run([tool, 'self', '--sign', '--in', patched_elf,
      '--out', child_fself, '--magic', '0x1D3D154F'])
@@ -641,36 +618,29 @@ run([tool, 'self', '--inspect', '--file', child_fself])
 # Both roles bind the identical immutable module/import manifest and public
 # loader. Only the parent has the native supervisor and BigApp process type.
 parent_work.mkdir(parents=True)
-parent_loader_object = loader_object
-parent_loader_command = loader_command
-if args.profile == 'b1':
-    parent_loader_object = parent_work / 'wine-public-title-parent.o'
-    parent_loader_command = list(loader_command)
-    parent_loader_command[parent_loader_command.index('-o') + 1] = str(parent_loader_object)
-    if '-MF' in parent_loader_command:
-        parent_loader_command[parent_loader_command.index('-MF') + 1] = str(parent_loader_object.with_suffix('.d'))
-    parent_loader_command.extend([
-        '-DWINE_PS5_TITLE_B1_PARENT',
-        '-Dwine_ps5_title_wait_children=pw_supervisor_wait_children',
-    ])
-    run(parent_loader_command, cwd=Path(loader_entry.get('directory', build)))
+parent_loader_object =parent_work / 'wine-public-title-parent.o'
+parent_loader_command = list(loader_command)
+parent_loader_command[parent_loader_command.index('-o') + 1] = str(parent_loader_object)
+if '-MF' in parent_loader_command:
+    parent_loader_command[parent_loader_command.index('-MF') + 1] = str(parent_loader_object.with_suffix('.d'))
+parent_loader_command.extend([
+    '-DWINE_PS5_TITLE_B1_PARENT',
+    '-Dwine_ps5_title_wait_children=pw_supervisor_wait_children',
+])
+run(parent_loader_command, cwd=Path(loader_entry.get('directory', build)))
 parent_wrapper = parent_work / 'native-entry-parent.c'
 parent_wrapper.write_text(
     '#include <stddef.h>\n#include <wine/ps5_title.h>\n' +
     profile_defines + '#define PW_PARENT_ROLE 1\n'
     f'#define PW_NATIVE_IMPORTS_INCLUDE {json.dumps(str(include_path))}\n'
     f'#include {json.dumps(str(here / "native-entry.c"))}\n')
-parent_protocol = parent_work / 'protocol-parent.c'
-parent_protocol.write_text(
-    '#define PW_P1C_FAULT_INJECTION 1\n'
-    f'#include {json.dumps(str(here / "protocol.c"))}\n')
 parent_supervisor = parent_work / 'runtime-parent.c'
 parent_supervisor.write_text(
     '#include <stddef.h>\n#include <wine/ps5_title.h>\n' +
-    profile_defines + '#define PW_P1C_FAULT_INJECTION 1\n'
+    profile_defines +
     f'#include {json.dumps(str(here / "runtime-parent.c"))}\n')
 desktop_sources = []
-if args.profile == 'b1' and not selected['headless']:
+if not selected['headless']:
     title = (here / '../../title').resolve()
     desktop_wrapper = parent_work / 'title-desktop.c'
     desktop_wrapper.write_text(
@@ -701,7 +671,7 @@ parent_env = dict(env, PS5_TITLE_WORK=str(parent_work),
 if diagnostic_menu:
     parent_env['FOREVER_MENU_DIAG'] = '1'
 run(['bash', here / '../../title/build.sh', parent_out, parent_wrapper,
-     here / 'elf-runtime.c', parent_protocol, parent_supervisor, *desktop_sources, *gpu_sources,
+     here / 'elf-runtime.c', here / 'protocol.c', parent_supervisor, *desktop_sources, *gpu_sources,
      *io_sources, parent_loader_object, safe_libc_archive],
     cwd=here, env=parent_env)
 if gpu_sources:
@@ -710,140 +680,135 @@ if gpu_sources:
     metadata['attribute'] = metadata.get('attribute', 0) | 0x20000000
     parameter.write_text(json.dumps(metadata, indent=2) + '\n')
 
-writebroker_identity = addon_worker_identity = None
-if args.profile == 'b1':
-    # Use Wine's own install rules for the complete PE/data layout, but copy
-    # only the Windows trees and data. No generic Unix library is admitted.
-    install = quarantine / 'wine-install'
-    if install.exists():
-        shutil.rmtree(install)
-    # Staging must not relink payload Unix outputs when B1-only source
-    # switches changed their dependency timestamps. They are not used here.
-    run(['make', '-s', '-C', build, '-j' + (os.environ.get('JOBS') or '8'), 'install-lib',
-         '-o', 'dlls/ntdll/ntdll.so', '-o', 'dlls/win32u/win32u.so',
-         '-o', 'server/wineserver', '-o', 'server/wineserver.so',
-         '-o', 'loader/wine',
-         '-o', 'dlls/wineps5.drv/wineps5.so',
-         *(['-o', 'dlls/wineps5audio.drv/wineps5audio.so'] if gpu else []),
-         f'DESTDIR={install}', f'prefix={selected["root"]}'])
-    installed = install / selected['root'].lstrip('/')
-    tree = quarantine / 'wine-title'
-    if tree.exists():
-        shutil.rmtree(tree)
-    (tree / 'lib/wine').mkdir(parents=True)
-    helper_identities = {}
-    for key, relative, payload in (
-            ('writebroker', WRITEBROKER_RELATIVE, writebroker_elf),
-            ('addon_worker', ADDON_WORKER_RELATIVE, addon_worker_elf)):
-        destination = tree / relative
-        shutil.copy2(payload, destination)
-        helper_identities[key] = {
-            'path': relative,
-            'app_path': selected['root'] + '/' + relative,
-            'classification': 'data_only_not_loaded',
-            'size': destination.stat().st_size,
-            'sha256': hashlib.sha256(destination.read_bytes()).hexdigest(),
-        }
-    writebroker_identity = helper_identities['writebroker']
-    addon_worker_identity = helper_identities['addon_worker']
-    for arch in ('i386', 'x86_64'):
-        shutil.copytree(installed / f'lib/wine/{arch}-windows', tree / f'lib/wine/{arch}-windows')
-    shutil.copytree(installed / 'share/wine', tree / 'share/wine')
-    loader_path = tree / 'lib/wine/x86_64-unix/wine'
-    loader_path.parent.mkdir(parents=True, exist_ok=True)
-    # argv[0] is a path identity for the compiled-in public loader, not an
-    # executable that a title can spawn. Keep the fresh loader file there so
-    # Wine's installed-path resolver can stat it.
-    shutil.copy2(build / 'loader/wine', loader_path)
-    for name, source in module_files.items():
-        destination = tree / selected['module_paths'][name].removeprefix(selected['root'] + '/')
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
-    # Mozilla's root certificates (curl's extract), pinned as in
-    # ps5/stage-wine.sh: crypt32 and so Chromium verify HTTPS against them.
-    roots = pins.download(deps, 'mozilla-roots')
-    cacert = here / '../../build' / roots['url'].rsplit('/', 1)[1]
-    if not cacert.is_file():
-        run(['curl', '--fail', '--silent', '--location', '--output', cacert.with_suffix('.part'),
-             roots['url']])
-        cacert.with_suffix('.part').rename(cacert)
-    if hashlib.sha256(cacert.read_bytes()).hexdigest() != roots['sha256']:
-        raise SystemExit(f'pinned certificate bundle digest mismatch: {cacert}')
-    shutil.copy2(cacert, tree / 'share/wine/cacert.pem')
-    # The console has no system fonts: the same pinned fallback faces (CJK,
-    # Thai, right-to-left) and notices ps5/stage-wine.sh gives payload Wine.
-    for name in ('DroidSansFallbackLegacy.ttf', 'NotoSansThai-Regular.ttf',
-                 'NotoSansArabic-Regular.ttf', 'NotoSansHebrew-Regular.ttf',
-                 'DroidSansFallback-NOTICE', 'NotoSans-LICENSE'):
-        font = pins.download(deps, name)
-        cache = here / '../../build' / name
-        if not cache.is_file():
-            run(['curl', '--fail', '--silent', '--location', '--output', cache.with_suffix('.part'),
-                 font['url']])
-            cache.with_suffix('.part').rename(cache)
-        if hashlib.sha256(cache.read_bytes()).hexdigest() != font['sha256']:
-            raise SystemExit(f'pinned font asset digest mismatch: {cache}')
-        shutil.copy2(cache, tree / 'share/wine/fonts' / name)
-    # Forever Launcher keeps the user's prefix in /data/forever. forever-setup.h
-    # installs these first-start defaults and copies the prefix files the app
-    # owns whenever this list (source, prefix path, digest) changes.
-    forever = tree / 'share/forever'
-    (forever / 'system32').mkdir(parents=True)
-    shutil.copy2(here / '../../release/defaults/Config.wtf', forever / 'Config.wtf')
-    # A protected application can restore system DLL code from its disk copy.
-    # Every builtin PE must therefore match the image Wine actually loads.
-    owned = {destination: source for source, destination in builtin_prefix_files(tree)}
-    addonforge = tree / 'addonforge'
-    addonforge.mkdir()
-    addonforge_build = here / '../../build/addonforge'
-    for name in ('addonforge-core.exe', 'forever-maintenance.exe',
-                 'ADDONFORGE-LICENSE.txt', 'THIRD-PARTY-NOTICES.txt',
-                 'build-receipt.json', 'github-catalogue.csv'):
-        source = addonforge_build / name
-        if not source.is_file():
-            raise SystemExit(f'missing AddonForge build output {source}')
-        shutil.copy2(source, addonforge / name)
-    owned['drive_c/Forever/Addons/addonforge-core.exe'] = 'addonforge/addonforge-core.exe'
-    owned['drive_c/Forever/Addons/forever-maintenance.exe'] = 'addonforge/forever-maintenance.exe'
-    for source_dir, names in ((args.vkd3d_dlls, ('d3d12.dll', 'd3d12core.dll')),
-                              (args.dxvk_dlls, ('dxgi.dll',))):
-        for name in names:
-            source = source_dir.resolve() / name
-            if not source.is_file():
-                raise SystemExit(f'missing app-owned prefix file {source}')
-            shutil.copy2(source, forever / 'system32' / name)
-            owned[f'drive_c/windows/system32/{name}'] = f'share/forever/system32/{name}'
-    lines = ['# Forever Launcher: prefix files the app owns (source below wine-title, prefix path, sha256)']
-    for destination, source in sorted(owned.items()):
-        path = tree / source
-        if not path.is_file():
-            raise SystemExit(f'missing app-owned prefix file {path}')
-        lines.append(f'{source}\t{destination}\t{hashlib.sha256(path.read_bytes()).hexdigest()}')
-    (forever / 'prefix-files.txt').write_text('\n'.join(lines) + '\n')
-    tree_manifest = runtime_tree_manifest(tree, selected)
-    (tree / 'title-root-manifest.json').write_text(json.dumps(tree_manifest, indent=2, sort_keys=True) + '\n')
+# Use Wine's own install rules for the complete PE/data layout, but copy
+# only the Windows trees and data. No generic Unix library is admitted.
+install = quarantine / 'wine-install'
+if install.exists():
     shutil.rmtree(install)
+# Staging must not relink payload Unix outputs when B1-only source
+# switches changed their dependency timestamps. They are not used here.
+run(['make', '-s', '-C', build, '-j' + (os.environ.get('JOBS') or '8'), 'install-lib',
+     '-o', 'dlls/ntdll/ntdll.so', '-o', 'dlls/win32u/win32u.so',
+     '-o', 'server/wineserver', '-o', 'server/wineserver.so',
+     '-o', 'loader/wine',
+     '-o', 'dlls/wineps5.drv/wineps5.so',
+     *(['-o', 'dlls/wineps5audio.drv/wineps5audio.so'] if gpu else []),
+     f'DESTDIR={install}', f'prefix={selected["root"]}'])
+installed = install / selected['root'].lstrip('/')
+tree = quarantine / 'wine-title'
+if tree.exists():
+    shutil.rmtree(tree)
+(tree / 'lib/wine').mkdir(parents=True)
+helper_identities = {}
+for key, relative, payload in (
+        ('writebroker', WRITEBROKER_RELATIVE, writebroker_elf),
+        ('addon_worker', ADDON_WORKER_RELATIVE, addon_worker_elf)):
+    destination = tree / relative
+    shutil.copy2(payload, destination)
+    helper_identities[key] = {
+        'path': relative,
+        'app_path': selected['root'] + '/' + relative,
+        'classification': 'data_only_not_loaded',
+        'size': destination.stat().st_size,
+        'sha256': hashlib.sha256(destination.read_bytes()).hexdigest(),
+    }
+for arch in ('i386', 'x86_64'):
+    shutil.copytree(installed / f'lib/wine/{arch}-windows', tree / f'lib/wine/{arch}-windows')
+shutil.copytree(installed / 'share/wine', tree / 'share/wine')
+loader_path = tree / 'lib/wine/x86_64-unix/wine'
+loader_path.parent.mkdir(parents=True, exist_ok=True)
+# argv[0] is a path identity for the compiled-in public loader, not an
+# executable that a title can spawn. Keep the fresh loader file there so
+# Wine's installed-path resolver can stat it.
+shutil.copy2(build / 'loader/wine', loader_path)
+for name, source in module_files.items():
+    destination = tree / selected['module_paths'][name].removeprefix(selected['root'] + '/')
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+# Mozilla's root certificates (curl's extract), pinned as in
+# ps5/stage-wine.sh: crypt32 and so Chromium verify HTTPS against them.
+roots = pins.download(deps, 'mozilla-roots')
+cacert = here / '../../build' / roots['url'].rsplit('/', 1)[1]
+if not cacert.is_file():
+    run(['curl', '--fail', '--silent', '--location', '--output', cacert.with_suffix('.part'),
+         roots['url']])
+    cacert.with_suffix('.part').rename(cacert)
+if hashlib.sha256(cacert.read_bytes()).hexdigest() != roots['sha256']:
+    raise SystemExit(f'pinned certificate bundle digest mismatch: {cacert}')
+shutil.copy2(cacert, tree / 'share/wine/cacert.pem')
+# The console has no system fonts: the same pinned fallback faces (CJK,
+# Thai, right-to-left) and notices ps5/stage-wine.sh gives payload Wine.
+for name in ('DroidSansFallbackLegacy.ttf', 'NotoSansThai-Regular.ttf',
+             'NotoSansArabic-Regular.ttf', 'NotoSansHebrew-Regular.ttf',
+             'DroidSansFallback-NOTICE', 'NotoSans-LICENSE'):
+    font = pins.download(deps, name)
+    cache = here / '../../build' / name
+    if not cache.is_file():
+        run(['curl', '--fail', '--silent', '--location', '--output', cache.with_suffix('.part'),
+             font['url']])
+        cache.with_suffix('.part').rename(cache)
+    if hashlib.sha256(cache.read_bytes()).hexdigest() != font['sha256']:
+        raise SystemExit(f'pinned font asset digest mismatch: {cache}')
+    shutil.copy2(cache, tree / 'share/wine/fonts' / name)
+# Forever Launcher keeps the user's prefix in /data/forever. forever-setup.h
+# installs these first-start defaults and copies the prefix files the app
+# owns whenever this list (source, prefix path, digest) changes.
+forever = tree / 'share/forever'
+(forever / 'system32').mkdir(parents=True)
+shutil.copy2(here / '../../release/defaults/Config.wtf', forever / 'Config.wtf')
+# A protected application can restore system DLL code from its disk copy.
+# Every builtin PE must therefore match the image Wine actually loads.
+owned = {destination: source for source, destination in builtin_prefix_files(tree)}
+addonforge = tree / 'addonforge'
+addonforge.mkdir()
+addonforge_build = here / '../../build/addonforge'
+for name in ('addonforge-core.exe', 'forever-maintenance.exe',
+             'ADDONFORGE-LICENSE.txt', 'THIRD-PARTY-NOTICES.txt',
+             'build-receipt.json', 'github-catalogue.csv'):
+    source = addonforge_build / name
+    if not source.is_file():
+        raise SystemExit(f'missing AddonForge build output {source}')
+    shutil.copy2(source, addonforge / name)
+owned['drive_c/Forever/Addons/addonforge-core.exe'] = 'addonforge/addonforge-core.exe'
+owned['drive_c/Forever/Addons/forever-maintenance.exe'] = 'addonforge/forever-maintenance.exe'
+for source_dir, names in ((args.vkd3d_dlls, ('d3d12.dll', 'd3d12core.dll')),
+                          (args.dxvk_dlls, ('dxgi.dll',))):
+    for name in names:
+        source = source_dir.resolve() / name
+        if not source.is_file():
+            raise SystemExit(f'missing app-owned prefix file {source}')
+        shutil.copy2(source, forever / 'system32' / name)
+        owned[f'drive_c/windows/system32/{name}'] = f'share/forever/system32/{name}'
+lines = ['# Forever Launcher: prefix files the app owns (source below wine-title, prefix path, sha256)']
+for destination, source in sorted(owned.items()):
+    path = tree / source
+    if not path.is_file():
+        raise SystemExit(f'missing app-owned prefix file {path}')
+    lines.append(f'{source}\t{destination}\t{hashlib.sha256(path.read_bytes()).hexdigest()}')
+(forever / 'prefix-files.txt').write_text('\n'.join(lines) + '\n')
+tree_manifest = runtime_tree_manifest(tree, selected)
+(tree / 'title-root-manifest.json').write_text(json.dumps(tree_manifest, indent=2, sort_keys=True) + '\n')
+shutil.rmtree(install)
 identity_by_name = {item['name']: item for item in title_modules}
 build_manifest = {
     'format': 2,
     'feature_macro': 'WINE_PS5_TITLE',
     'profile': selected,
-    **({'writebroker': writebroker_identity} if writebroker_identity else {}),
-    **({'addon_worker': addon_worker_identity} if addon_worker_identity else {}),
+    **helper_identities,
     'variant_compiles': variant_compiles,
     'quarantine': str(quarantine.relative_to(here.parent.parent)),
     'generic_outputs_untouched': [
         'dlls/ntdll/ntdll.so', 'dlls/win32u/win32u.so',
-        *(['dlls/wineps5.drv/wineps5.so'] if args.profile == 'b1' else []),
+        'dlls/wineps5.drv/wineps5.so',
         *(['dlls/wineps5audio.drv/wineps5audio.so'] if gpu else []),
         'server/wineserver', 'server/wineserver.so', 'loader/wine'],
     'loader_compile': loader_command,
     'parent_loader_compile': parent_loader_command,
-    **({'desktop': {
+    'desktop': {
         'enabled': not selected['headless'],
         'sources': [str(path) for path in desktop_sources],
         **({'diagnostic_menu': True} if diagnostic_menu else {}),
-    }} if args.profile == 'b1' else {}),
+    },
     'gpu': {
         'enabled': bool(gpu_sources),
         'parent_sources': [str(path) for path in gpu_sources],

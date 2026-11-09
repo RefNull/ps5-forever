@@ -9,7 +9,6 @@
 #ifdef PW_PARENT_ROLE
 #include "runtime-parent.h"
 #endif
-#ifdef PW_RUNTIME_B1
 #include "title-log.h"
 #include "forever-paths.h"
 #include "forever-setup.h"
@@ -17,8 +16,7 @@
 #include "../../title/addonforge-client.h"
 #include "../../title/addonforge-security.h"
 #include "../../addon-worker/protocol.h"
-#endif
-#if defined(PW_RUNTIME_B1) && defined(PW_PARENT_ROLE) && !PW_RUNTIME_GPU
+#if defined(PW_PARENT_ROLE) && !PW_RUNTIME_GPU
 #include "addon-trash-native.h"
 static void forever_addon_trash_start(void);
 static void forever_addon_trash_shutdown(void);
@@ -29,9 +27,7 @@ static void forever_title_voice_shutdown(void);
 #endif
 #if defined(PW_PARENT_ROLE) && PW_RUNTIME_GPU
 #include <ps5platform/klog.h>
-#if defined(PW_RUNTIME_B1)
 #include "../../title/voice.h"
-#endif
 void *pw_title_vulkan_proc(const char *);
 int pw_title_input_start(void);
 #endif
@@ -170,7 +166,7 @@ static struct pw_elf_runtime runtime;
 static char from_prefix[PW_ELF_PATH], to_prefix[PW_ELF_PATH];
 static const char *const system_modules[] = {"libkernel_web.sprx", "libkernel_sys.sprx",
     "libSceLibcInternal.sprx", "libSceNet.sprx"};
-static int output_read = -1, output_write = -1, output_ok, output_bad;
+static int output_read = -1, output_write = -1;
 static pthread_t output_thread;
 static int output_started;
 static _Atomic int output_done;
@@ -412,7 +408,7 @@ static struct wine_ps5_title_runtime native_runtime = {
     .stdout_fd=1,.server_socket=-1,.version=WINE_PS5_TITLE_RUNTIME_VERSION
 };
 
-#if defined(PW_RUNTIME_B1) && defined(PW_PARENT_ROLE)
+#ifdef PW_PARENT_ROLE
 extern int sceSystemServiceLoadExec(const char *, const char *const []);
 static atomic_int forever_broker_repair_restart_claimed;
 static int pw_title_writebroker_restart(void);
@@ -593,7 +589,6 @@ static pthread_t control_thread;
 static int control_started;
 static int (*signal_thread)(unsigned int, void *, int);
 static int server_socket_transferred;
-#ifdef PW_RUNTIME_B1
 /* CreateProcess from a child: the parent's supervisor admits the sibling
  * (runtime-parent.c serve_child_spawns). One request at a time per child. */
 static int spawn_channel = -1;
@@ -893,10 +888,8 @@ static int pw_child_desktop_surface(const char *name, uint64_t size, int op)
 }
 #endif
 
-#endif
 #endif /* !PW_PARENT_ROLE: the native call wrappers below serve both roles */
 
-#ifdef PW_RUNTIME_B1
 /* FreeBSD <_ctype.h> inlines in GnuTLS's gnulib (c32is*, c32tolower,
  * wcwidth) call these; SceLibcInternal does not export them. The title has
  * only the C locale, so this is FreeBSD's C locale: ASCII classes, digit
@@ -937,9 +930,7 @@ const _RuneLocale *__getCurrentRuneLocale(void)
 }
 unsigned long ___runetype(__ct_rune_t c) { (void)c; return 0; }
 __ct_rune_t ___tolower(__ct_rune_t c) { return c; }
-#endif
 
-#ifdef PW_RUNTIME_B1
 /* libSceNet, libSceNetCtl and libSceSystemService calls of the title's Unix
  * modules and of netdb.o (renamed by build-runtime.py). The parent calls the
  * real functions; a PsmKit child, which has none of those modules loaded,
@@ -956,7 +947,6 @@ int sceNetCtlGetInfo(int, void *);
 int sceSystemServiceParamGetString(int, char *, size_t);
 
 #ifdef PW_PARENT_ROLE
-#ifdef PW_RUNTIME_B1
 /* The title's own resolver. Every lookup of the title and its children ends
  * in the parent; first lookups through the console resolver (and the user's
  * nanoDNS) took ~200 ms each, while public resolvers answer in ~20 ms. Ask
@@ -1136,7 +1126,6 @@ static const char *pw_dns_internal(const char *name, uint32_t *address)
     }
     return NULL;
 }
-#endif
 
 /* Every name lookup of the title and its children ends here. WoW's startup
  * threads sat in name resolution for whole 10-s profile windows (runs
@@ -1149,9 +1138,7 @@ static int pw_resolver_ntoa_timed(int resolver, const char *host, uint32_t *addr
     int64_t start = io_now_ms();
     const char *source = NULL;
     int result, net_errno = 0;
-#ifdef PW_RUNTIME_B1
     if (address) source = pw_dns_internal(host, address);
-#endif
     if (source) result = 0;
     else
     {
@@ -1168,7 +1155,6 @@ static int pw_resolver_ntoa_timed(int resolver, const char *host, uint32_t *addr
                timeout, retry);
     return result;
 }
-#ifdef PW_RUNTIME_B1
 /* Resolve the profile's known hosts at start, one thread each, so the
  * console's per-process lookup cache already holds them when the program
  * asks (first lookups cost ~200 ms each and the cache does not survive the
@@ -1200,7 +1186,6 @@ static void pw_prefetch_hosts(void)
         if (!create_thread(&thread, NULL, pw_prefetch_host, host)) pthread_detach(thread);
     }
 }
-#endif
 #endif
 
 #ifdef PW_PARENT_ROLE
@@ -1356,7 +1341,6 @@ int pw_ss_param_get_string(int id, char *buffer, size_t size)
 #endif
 }
 #undef PW_FORWARD
-#endif
 #ifndef PW_PARENT_ROLE
 static void *control_agent(void *unused)
 {
@@ -1383,29 +1367,6 @@ static void *control_agent(void *unused)
     return NULL;
 }
 #endif
-/* Only designated value fields vary; fixed lines remain byte-exact. */
-#ifndef PW_RUNTIME_B1
-static int p1w_output_matches(const char *line, size_t length, unsigned int index)
-{
-#ifdef PW_PARENT_ROLE
-    static const char *const expected[] = {PW_PARENT_FIBER, PW_PARENT_OUTPUT};
-#else
-    static const char *const expected[] = {
-        PW_CHILD_ENTRY, PW_CHILD_FIBER, PW_CHILD_CONTEXT, PW_CHILD_OUTPUT
-    };
-#endif
-    if (index >= sizeof(expected) / sizeof(expected[0])) return 0;
-    const char *format = expected[index];
-    if (length != strlen(format)) return 0;
-    for (size_t i = 0; i < length; ++i) {
-        if (format[i] == 'X') {
-            if (!((line[i] >= '0' && line[i] <= '9') ||
-                  (line[i] >= 'a' && line[i] <= 'f'))) return 0;
-        } else if (line[i] != format[i]) return 0;
-    }
-    return 1;
-}
-#endif
 static void *collect_output(void *unused)
 {
     (void)unused;
@@ -1415,40 +1376,32 @@ static void *collect_output(void *unused)
         int ready=poll(&p,1,250);
         if (ready<0 && errno==EINTR) continue;
         if (!ready) { if (atomic_load(&output_done)) break; else continue; }
-        if (ready<0) { output_bad=1; break; }
+        if (ready<0) break;
         char bytes[256]; ssize_t n=read(output_read,bytes,sizeof(bytes));
         if (n<0 && errno==EINTR) continue;
-        if (!n) break;
-        if (n<0) { output_bad=1; break; }
+        if (n<=0) break;
         for (ssize_t i=0;i<n;++i) {
-            if (used==sizeof(line)-1) { output_bad=1; used=0; }
+            if (used==sizeof(line)-1) used=0;
             line[used++]=bytes[i];
             if (bytes[i]=='\n') {
                 line[used]=0;
-#ifndef PW_RUNTIME_B1
-                if (p1w_output_matches(line, used, output_ok)) ++output_ok;
-                else output_bad=1;
-#endif
                 sceKernelDebugOutText(0,"psmkit-wine stdout BEGIN\n");
                 sceKernelDebugOutText(0,line);
                 sceKernelDebugOutText(0,"psmkit-wine stdout END\n"); used=0;
             }
         }
     }
-    if (used) output_bad=1;
     close(output_read); return NULL;
 }
 /* Wine's threads log from here on: their klog lines (and io_log's) leave on
  * title-log.c's writer thread. Startup failures before it log synchronously. */
 static void pw_title_log_begin(void)
 {
-#ifdef PW_RUNTIME_B1
     pw_title_log_start(PW_RUNTIME_PREFIX "/drive_c/wineps5-tune.txt");
-#endif
 }
 void __attribute__((noreturn)) pw_native_exit(int status)
 {
-#if defined(PW_RUNTIME_B1) && defined(PW_PARENT_ROLE)
+#ifdef PW_PARENT_ROLE
 #if !PW_RUNTIME_GPU
     forever_addon_trash_shutdown();
 #endif
@@ -1458,10 +1411,8 @@ void __attribute__((noreturn)) pw_native_exit(int status)
     forever_title_voice_shutdown();
 #endif
 #endif
-#ifdef PW_RUNTIME_B1
     /* Every queued line first; the exit lines below are written synchronously. */
     pw_title_log_shutdown();
-#endif
 #ifdef PW_PARENT_ROLE
     pw_supervisor_shutdown();
 #if PW_RUNTIME_GPU
@@ -1485,23 +1436,11 @@ void __attribute__((noreturn)) pw_native_exit(int status)
                closed,saved_errno);
         atomic_store(&output_done,1);
         join_thread(output_thread,NULL);
-        if (closed) output_bad=1;
     }
-#ifdef PW_RUNTIME_B1
 #ifdef PW_PARENT_ROLE
     io_log("b1 parent result=WINE_EXIT wine_exit=%d topology=PARENT_SHARED_INPROCESS_WINESERVER", status);
 #else
     io_log("b1 child result=WINE_EXIT wine_exit=%d topology=CHILD_PARENT_WINESERVER", status);
-#endif
-#elif defined(PW_PARENT_ROLE)
-    io_log("p1w parent result=%s wine_exit=%d stdout_exact=%d topology=PARENT_SHARED_INPROCESS_WINESERVER",
-           !status && output_ok==2 && !output_bad ? "P1W_PE32_PASS" : "FAIL_OR_INCONCLUSIVE",
-           status,output_ok==2 && !output_bad);
-    if (!status && (output_ok!=2 || output_bad)) status=1;
-#else
-    io_log("p1w child result=%s wine_exit=%d stdout_exact=%d topology=CHILD_PARENT_WINESERVER",
-           status==5 && output_ok==4 && !output_bad ? "P1W_PE32_CHILD_PASS" : "FAIL_OR_INCONCLUSIVE",
-           status,output_ok==4 && !output_bad);
 #endif
     pw_duplicate_bridge_close(duplicate_channel);
     /* The OS reclaims these private mappings at exit. Do not run module
@@ -1510,7 +1449,7 @@ void __attribute__((noreturn)) pw_native_exit(int status)
 #ifndef PW_PARENT_ROLE
     close(3); /* Last native action: supervisor EOF now means lifetime ended. */
 #endif
-#if defined(PW_RUNTIME_B1) && defined(PW_PARENT_ROLE) && !PW_RUNTIME_GPU
+#if defined(PW_PARENT_ROLE) && !PW_RUNTIME_GPU
 #if !PW_RUNTIME_HEADLESS
     if (atomic_load(&forever_menu_exit_pending))
     {
@@ -1563,7 +1502,7 @@ void __attribute__((noreturn)) pw_native_exit(int status)
         b1_wait();
     }
 #endif
-#if defined(PW_RUNTIME_B1) && defined(PW_PARENT_ROLE) && PW_RUNTIME_GPU
+#if defined(PW_PARENT_ROLE) && PW_RUNTIME_GPU
     io_log("b1 game exit status=%d; closing the app", status);
     /* Native title libc exit/_exit triggers SIGSYS in libkernel on fw 5.50.
      * Wine/server persistence, children, audio and stdout are already closed;
@@ -1577,7 +1516,7 @@ void __attribute__((noreturn)) pw_native_exit(int status)
     exit(status);
 }
 
-#if defined(PW_RUNTIME_B1) && defined(PW_PARENT_ROLE)
+#ifdef PW_PARENT_ROLE
 #include "forever-download.h"
 #if !PW_RUNTIME_HEADLESS
 void title_desktop_message(const char *);
@@ -1686,7 +1625,7 @@ done:
 #endif
 #endif
 
-#if defined(PW_RUNTIME_B1) && defined(PW_PARENT_ROLE)
+#ifdef PW_PARENT_ROLE
 static void forever_say(const char *text)
 {
     io_log("forever: %s", text);
@@ -2993,7 +2932,7 @@ int forever_title_menu_action(enum forever_menu_command command, int enabled)
 #endif
 #endif
 
-#if defined(PW_RUNTIME_B1) && defined(PW_PARENT_ROLE)
+#ifdef PW_PARENT_ROLE
 static int pw_writebroker_connect_port(unsigned int port, int64_t deadline)
 {
     struct sockaddr_in address = {
@@ -3802,7 +3741,7 @@ int main(int argc, char **argv)
     errno=0;
     int64_t now=io_now_ms();
     int saved_errno=errno, result;
-#if defined(PW_PARENT_ROLE) && defined(PW_RUNTIME_B1) && PW_RUNTIME_GPU
+#if defined(PW_PARENT_ROLE) && PW_RUNTIME_GPU
     char **game_args = NULL;
     const char *game_cwd = NULL;
     int game_argc = pw_game_startup_argv(argc, argv, &game_args, &game_cwd);
@@ -3819,13 +3758,13 @@ int main(int argc, char **argv)
     if (now<0) return 1;
     native_runtime.vulkan_proc = pw_title_profile_proc;
 #ifdef PW_PARENT_ROLE
-#if !(defined(PW_RUNTIME_B1) && PW_RUNTIME_GPU)
+#if !PW_RUNTIME_GPU
     (void)argc; (void)argv;
 #endif
     result = pw_supervisor_init();
     if (result) return 1;
     native_runtime.spawn_process = pw_supervisor_spawn;
-#if defined(PW_RUNTIME_B1) && !PW_RUNTIME_GPU
+#if !PW_RUNTIME_GPU
     native_runtime.game_launch = pw_game_launch;
 #endif
     native_runtime.signal_child_thread = pw_supervisor_signal;
@@ -3850,11 +3789,9 @@ int main(int argc, char **argv)
         return 1;
     }
 #endif
-#ifdef PW_RUNTIME_B1
     native_runtime.payload_spawn = pw_payload_spawn;
     native_runtime.open_url = pw_open_url;
-#endif
-#if defined(PW_RUNTIME_B1) && !PW_RUNTIME_HEADLESS
+#if !PW_RUNTIME_HEADLESS
     native_runtime.desktop_connect = pw_desktop_connect;
     native_runtime.desktop_surface = pw_desktop_surface;
 #endif
@@ -3901,7 +3838,6 @@ int main(int argc, char **argv)
     if (io_transfer(3, &hello, sizeof(hello), 1, now + PW_OVERALL_MS)) return 1;
     io_log("p1c child HELLO pid=%u generation=%llx server_socket=%d", hello.pid,
            (unsigned long long)generation, native_runtime.server_socket);
-#ifdef PW_RUNTIME_B1
     spawn_channel = pw_receive_fd(3, now + PW_OVERALL_MS);
     if (spawn_channel < 0)
     {
@@ -3921,7 +3857,6 @@ int main(int argc, char **argv)
 #if PW_RUNTIME_GPU
     io_log("wine: title audio runtime callbacks role=child open=0 output=0 close=0 sink=silent");
 #endif
-#endif
     /* cwd is data only; Wine applies server startup cwd through its title
      * directory emulation, never a native title chdir(). */
 #endif
@@ -3932,7 +3867,7 @@ int main(int argc, char **argv)
     io_log("psmkit-wine startup stage=prefix_guard present=%d matches=%d inherited=%.160s",
            prefix!=NULL,prefix_matches,prefix ? prefix : "(unset)");
     if (!prefix_matches) return 1;
-#if defined(PW_RUNTIME_B1) && defined(PW_PARENT_ROLE)
+#ifdef PW_PARENT_ROLE
     {
         struct stat user_root;
         /* An existing stale tree may be unwriteable, so its privileged
@@ -3960,7 +3895,7 @@ int main(int argc, char **argv)
     pw_title_icon_start();
 #endif
 #endif
-#if defined(PW_RUNTIME_B1) && defined(PW_PARENT_ROLE) && !PW_RUNTIME_GPU
+#if defined(PW_PARENT_ROLE) && !PW_RUNTIME_GPU
     int installer = 0;
     struct stat startup_file;
     installer = !forever_prefix_init && stat(PW_RUNTIME_LAUNCHER_UNIX, &startup_file) != 0;
@@ -3994,16 +3929,13 @@ int main(int argc, char **argv)
     char marker[32]; snprintf(marker,sizeof(marker),"%llx",(unsigned long long)(uintptr_t)&native_runtime);
     static const char *const names[]={"WINEPS5_TITLE_RUNTIME","WINEPS5_IN_TITLE","WINEPS5_DIRECT_MEMORY",
                                       "WINEPREFIX","HOME","USER","WINEDEBUG"
-#ifdef PW_RUNTIME_B1
         ,"WINEDLLOVERRIDES"
 #if PW_RUNTIME_HEADLESS
         ,"WINEPS5_TITLE_HEADLESS"
 #endif
         ,"QT_OPENGL","QT_QUICK_BACKEND"
-#endif
     };
     const char *values[]={marker,"1","1",PW_RUNTIME_PREFIX,PW_RUNTIME_HOME,"ps5",PW_RUNTIME_DEBUG
-#ifdef PW_RUNTIME_B1
 #ifdef PW_PARENT_ROLE
         ,PW_RUNTIME_DLL_OVERRIDES
 #else
@@ -4013,14 +3945,12 @@ int main(int argc, char **argv)
         ,"1"
 #endif
         ,"software","software"
-#endif
     };
     for (unsigned i=0;i<sizeof(names)/sizeof(names[0]);++i) {
         errno=0; result=setenv(names[i],values[i],1); saved_errno=errno;
         io_log("psmkit-wine startup stage=setenv name=%s result=%d errno=%d",names[i],result,saved_errno);
         if (result) return 1;
     }
-#ifdef PW_RUNTIME_B1
     if (native_runtime.payload_spawn &&
         setenv("WINEPS5_PAYLOAD_PROGRAMS", PW_RUNTIME_PAYLOAD_PROGRAMS, 1)) return 1;
     /* An empty role value overwrites one inherited across LoadExec. */
@@ -4107,7 +4037,6 @@ int main(int argc, char **argv)
            result,saved_errno);
     if (result) return 1;
 #endif
-#endif
     int fds[2];
     errno=0; result=pipe(fds); saved_errno=errno;
     io_log("psmkit-wine startup stage=stdout_pipe result=%d errno=%d",result,saved_errno);
@@ -4124,7 +4053,6 @@ int main(int argc, char **argv)
     output_started=1;
 #ifdef PW_PARENT_ROLE
     io_log("p1c parent entering ORIGINAL_WINE_LOADER topology=PARENT_SHARED_INPROCESS_WINESERVER");
-#ifdef PW_RUNTIME_B1
 #if PW_RUNTIME_GPU
     char **args = game_args;
     int parent_argc = game_argc;
@@ -4170,11 +4098,6 @@ int main(int argc, char **argv)
         if (!installer) pw_prefetch_hosts();
         result=wine_public_title_main(installer ? 4 : PW_RUNTIME_PARENT_ARGC, installer ? installer_args : args);
     }
-#endif
-#else
-    char *args[]={(char *)PW_RUNTIME_LOADER,"C:\\psmkit-wine-parent.exe",NULL};
-    pw_title_log_begin();
-    result=wine_public_title_main(2,args);
 #endif
 #else
     void *ntdll = pw_public_dlopen(PW_RUNTIME_NTDLL, RTLD_NOW);

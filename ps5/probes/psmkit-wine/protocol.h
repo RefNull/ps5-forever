@@ -57,13 +57,6 @@ int pw_within(int64_t deadline);
 #define PW_ARGC 64
 #define PW_ARG_BYTES 8192
 #define PW_CWD_BYTES 1024
-#define PW_PARENT_OUTPUT "p1w parent: pe32 seh=ok threads=2 fiber=ok context=ok win32k=ok child exit=5\r\n"
-#define PW_CHILD_ENTRY "p1w child: pe32 entry ptr=4\r\n"
-#define PW_CHILD_OUTPUT "p1w child: pe32 seh=ok threads=2 fiber=ok context=fact win32k=ok ptr=4 exit=5\r\n"
-/* Each X is exactly one lowercase hex digit, not an arbitrary suffix. */
-#define PW_PARENT_FIBER "p1w parent: fiber data=XXXXXXXX current=XXXXXXXX fs10=XXXXXXXX converted=XXXXXXXX error=XXXXXXXX\r\n"
-#define PW_CHILD_FIBER "p1w child: fiber data=XXXXXXXX current=XXXXXXXX fs10=XXXXXXXX converted=XXXXXXXX error=XXXXXXXX\r\n"
-#define PW_CHILD_CONTEXT "p1w child: context suspend=XXXXXXXX get=XXXXXXXX resume=XXXXXXXX error=XXXXXXXX\r\n"
 #define PW_STALE_BOOTSTRAP_TOKEN "--pw-p1c-stale-bootstrap"
 struct pw_p1c_bootstrap
 {

@@ -566,7 +566,7 @@ docker run --rm --pull=never --user "$(id -u):$(id -g)" \
   --mount "type=bind,source=$SOURCE_ROOT,target=/sources" \
   --workdir /sources/ps5-proton/ps5-wow \
   forever-launcher-linux:ubuntu-24.04 \
-  bash -c 'mkdir -p "$HOME"; make -s -C ps5/probes/psmkit-wine test MINGW_CC=/opt/llvm-mingw/bin/x86_64-w64-mingw32-clang MINGW32_CC=/opt/llvm-mingw/bin/i686-w64-mingw32-clang'
+  bash -c 'mkdir -p "$HOME"; make -s -C ps5/probes/psmkit-wine test MINGW_CC=/opt/llvm-mingw/bin/x86_64-w64-mingw32-clang'
 ```
 
 The `test-file-security` host gate compiles Wine's real `mode_to_sd`,
@@ -668,14 +668,6 @@ runs both Wine's policy tests and `test-write-buffer`, which extracts the
 production implementation from `WINE_SRC`; use a Wine revision containing this
 implementation, not an older release pin.
 
-`make -C ps5/probes/write-buffer-bench LLVM_MINGW=/opt/llvm-mingw` builds a
-Windows probe that writes scratch `data.000` in 2–64 KiB chunks, verifies every
-byte and removes its scratch tree. It accepts a MiB argument or
-`C:\write-buffer-bench-mib.txt`, and reports through
-`C:\write-buffer-bench-result.txt`. On console .39, the 128 MiB benchmark
-improved from about 9 to 62 MiB/s; a real WoW Classic install improved from
-3.9 to 12.4 MB/s median. Full Scan and Repair was not run.
-
 An alternating Retail download comparison on console .39 used public
 `01.000.013` and the combined private build `desc-a5e142bb`: 12.4 to 21.2 MB/s,
 with time inside writes falling from 7.6 to 5.5 seconds per 10-second window.
@@ -683,38 +675,7 @@ The second pair was network-bound at 8.2 to 8.6 MB/s (1.8 to 1.5 seconds inside
 writes). These are combined-build workload measurements, not an isolated claim
 for the buffer alone or a Scan and Repair qualification.
 
-## Scan / IOCP diagnostic probe
-
-`make -C ps5/probes/scan-bench LLVM_MINGW=/opt/llvm-mingw` builds a Windows
-probe independent of Battle.net. Install the executable as the maintenance
-launcher and also as `C:\Agent.exe`: the launcher starts the second copy as a
-child, matching Agent's cross-process wineserver transport rather than
-benchmarking the title parent's direct-call path. This diagnostic filename also
-exercises the Agent-only cache admission rule; back up and restore that prefix
-file along with both maintenance-launcher copies.
-Standalone fixture cleanup removes only scratch/result data, never a restored
-`C:\Agent.exe`; the swap transaction owns restoration/removal of that executable.
-
-The child creates `C:\scan-bench\data.bin` once (1 GiB), then four workers read
-256 MiB in 64 KiB overlapped chunks, dequeue IOCP packets (alternating
-`GetQueuedCompletionStatus` / `GetQueuedCompletionStatusEx`), and hash all bytes
-with BCrypt MD5. Each chunk reserves/commits/releases a 32 MiB scratch workspace,
-matching the allocation churn measured in Agent's scan workers. Build with
-`WORKSPACE=0` for the IOCP/hash-only control (16 passes over the 1 GiB file).
-A separate thread runs `MsgWaitForMultipleObjects` / `PeekMessage`.
-`C:\scan-bench-result.txt` records throughput, completed/pending read counts,
-aggregate allocation / release / hash / IOCP-wait time and message-loop counters.
-The probe checks `VirtualQuery` after free/reuse and fresh-commit zeroes, and
-waits 11 seconds outside each end of the timed interval so the sampler can
-publish complete baseline/final cumulative CPU counters. Compile a distinct
-`OUT` with `WORKERS=2` to match Agent's two scan workers; the four-worker default
-also stresses a bounded cache whose retained capacity may be smaller than all
-simultaneously active workspaces.
-Timed work excludes scratch creation. Keep the scratch file between A/B runs;
-afterward run the probe with `--cleanup` or remove the scratch directory and
-result over FTP, and restore both maintenance-launcher copies. A launcher swap
-must temporarily update the matching SHA-256 in `share/forever/prefix-files.txt`
-and restore it afterward, otherwise prefix-integrity checks reject the probe.
+## Profiling and direct-memory tuning
 
 For diagnostics, copy `b1-product.json`, set `environment.WINEPS5_PROFILE="1"`
 and build the maintenance role using that temporary `B1_PROFILE_CONFIG`. The

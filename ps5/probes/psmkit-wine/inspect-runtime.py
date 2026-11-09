@@ -24,28 +24,26 @@ from runtime_profiles import (
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--wine-build', type=Path, default=Path('../../build/wine-ps5-build'))
-parser.add_argument('--profile', choices=('p1w', 'b1'), default='p1w')
 parser.add_argument('--profile-config', type=Path)
 parser.add_argument('--host-test', type=Path, required=True)
 parser.add_argument('--publish', type=Path)
 parser.add_argument('--parent-title', type=Path)
-parser.add_argument('--pe-dir', type=Path, default=Path('../../build/psmkit-wine-pe'))
 parser.add_argument('--quarantine', type=Path)
 args = parser.parse_args()
 here = Path(__file__).resolve().parent
 ps5_root = here.parent.parent
-selected = profile(args.profile, json.loads(args.profile_config.read_text()) if args.profile_config else None)
+selected = profile('b1', json.loads(args.profile_config.read_text()) if args.profile_config else None)
 native_roles = native_role_imports(
-    args.profile, headless=selected.get('headless', False), gpu=selected.get('gpu', False))
+    headless=selected.get('headless', False), gpu=selected.get('gpu', False))
 module_paths = selected['module_paths']
-profile_leaf = 'title-psmkit-wine-b1' if args.profile == 'b1' else 'title-psmkit-wine-runtime'
+profile_leaf = 'title-psmkit-wine-b1'
 quarantine = (args.quarantine or here / '../../build' / (profile_leaf + '-quarantine')).resolve()
 work = quarantine / 'child-work'
 child_out = quarantine / 'child-title'
 parent_title = (args.parent_title or quarantine / 'parent-title').resolve()
 publish_out = (args.publish or here / '../../build' / profile_leaf).resolve()
 host_out = (here / '../../build/psmkit-wine-host').resolve()
-policy_path = here / ('runtime-import-policy-b1.json' if args.profile == 'b1' else 'runtime-import-policy.json')
+policy_path = here / 'runtime-import-policy-b1.json'
 llvm = Path(os.environ.get('LLVM_BIN', '/opt/homebrew/opt/llvm/bin'))
 native_tool = (here / '../../../../../PS5_Vulkan/build/host/ps5-native-tool').resolve()
 
@@ -93,56 +91,49 @@ PRIVATE = re.compile(
 FORBIDDEN_DEFINITIONS = {'mmap', 'mprotect', 'munmap', 'syscall', '__syscall'}
 NID_SUFFIX = bytes.fromhex('518d64a635ded8c1e6b039b1c3e55230')
 EXPECTED_TITLE_LIBC_SHA256 = 'e6ff45d16adf687855cc3b33b0c8a4132b6504360b221e0a34c7e99fb3ba0036'
-EXPECTED_PARENT_NEEDED = [
-    'libkernel.prx',
-    'libSceLibcInternal.prx',
-    'libSceSystemService.prx',
-]
-EXPECTED_PARENT_PRE_NEEDED = [*EXPECTED_PRE_NEEDED, 'libSceSystemService.sprx']
-if args.profile == 'b1':
-    # Children forward networking, desktop and payload-spawn operations.
-    EXPECTED_PARENT_PRE_NEEDED = [*EXPECTED_PRE_NEEDED, 'libSceNet.sprx',
-                                  'libSceNetCtl.sprx', 'libSceSystemService.sprx',
-                                  'libSceUserService.sprx']
-    EXPECTED_PARENT_NEEDED = [*EXPECTED_POST_NEEDED, 'libSceNet.prx',
-                              'libSceNetCtl.prx', 'libSceSystemService.prx',
-                              'libSceUserService.prx']
-    if not selected['headless']:
-        EXPECTED_PARENT_PRE_NEEDED = [
-            'libkernel.sprx', 'libSceIme.prx', 'libSceKeyboard.sprx',
-            'libSceLibcInternal.sprx', 'libSceMouse.sprx', 'libSceNet.sprx',
-            'libSceNetCtl.sprx', 'libScePad.sprx', 'libSceSysmodule.sprx',
-            'libSceSystemService.sprx', 'libSceUserService.sprx',
-            'libSceVideoOut.sprx',
-        ]
-        EXPECTED_PARENT_NEEDED = [
-            'libkernel.prx', 'libSceIme.prx', 'libSceKeyboard.prx',
-            'libSceLibcInternal.prx', 'libSceMouse.prx', 'libSceNet.prx',
-            'libSceNetCtl.prx', 'libScePad.prx', 'libSceSysmodule.prx',
-            'libSceSystemService.prx', 'libSceUserService.prx',
-            'libSceVideoOut.prx',
-        ]
-    EXPECTED_PARENT_PRE_NEEDED = sorted(set(EXPECTED_PARENT_PRE_NEEDED) | {
-        'libSceHttp2.sprx', 'libSceSsl.sprx'}, key=str.lower)
-    EXPECTED_PARENT_NEEDED = sorted(set(EXPECTED_PARENT_NEEDED) | {
-        'libSceHttp2.prx', 'libSceSsl.prx'}, key=str.lower)
-    # libSceIme's stub (ps5/title/stubs, soname libSceIme.prx, like AGC's) is
-    # linked after the SDK's stubs (ps5/title/build.sh): the last needed library.
-    for needed in (EXPECTED_PARENT_PRE_NEEDED, EXPECTED_PARENT_NEEDED):
-        if 'libSceIme.prx' in needed:
-            needed.remove('libSceIme.prx')
-            needed.append('libSceIme.prx')
-    if selected['gpu']:
-        # SDK stubs precede custom AGC, inline-IME, then AGC-driver stubs.
-        EXPECTED_PARENT_PRE_NEEDED = [
-            'libkernel.sprx', 'libSceAudioOut.sprx', 'libSceKeyboard.sprx',
-            'libSceLibcInternal.sprx', 'libSceMouse.sprx', 'libSceNet.sprx',
-            'libSceNetCtl.sprx', 'libScePad.sprx', 'libSceSysmodule.sprx',
-            'libSceSystemService.sprx', 'libSceUserService.sprx', 'libSceVideoOut.sprx',
-            'libSceAgc.prx', 'libSceIme.prx', 'libSceAudioIn.prx', 'libSceAgcDriver.prx',
-        ]
-        EXPECTED_PARENT_NEEDED = [
-            name.replace('.sprx', '.prx') for name in EXPECTED_PARENT_PRE_NEEDED]
+# Children forward networking, desktop and payload-spawn operations.
+EXPECTED_PARENT_PRE_NEEDED = [*EXPECTED_PRE_NEEDED, 'libSceNet.sprx',
+                              'libSceNetCtl.sprx', 'libSceSystemService.sprx',
+                              'libSceUserService.sprx']
+EXPECTED_PARENT_NEEDED = [*EXPECTED_POST_NEEDED, 'libSceNet.prx',
+                          'libSceNetCtl.prx', 'libSceSystemService.prx',
+                          'libSceUserService.prx']
+if not selected['headless']:
+    EXPECTED_PARENT_PRE_NEEDED = [
+        'libkernel.sprx', 'libSceIme.prx', 'libSceKeyboard.sprx',
+        'libSceLibcInternal.sprx', 'libSceMouse.sprx', 'libSceNet.sprx',
+        'libSceNetCtl.sprx', 'libScePad.sprx', 'libSceSysmodule.sprx',
+        'libSceSystemService.sprx', 'libSceUserService.sprx',
+        'libSceVideoOut.sprx',
+    ]
+    EXPECTED_PARENT_NEEDED = [
+        'libkernel.prx', 'libSceIme.prx', 'libSceKeyboard.prx',
+        'libSceLibcInternal.prx', 'libSceMouse.prx', 'libSceNet.prx',
+        'libSceNetCtl.prx', 'libScePad.prx', 'libSceSysmodule.prx',
+        'libSceSystemService.prx', 'libSceUserService.prx',
+        'libSceVideoOut.prx',
+    ]
+EXPECTED_PARENT_PRE_NEEDED = sorted(set(EXPECTED_PARENT_PRE_NEEDED) | {
+    'libSceHttp2.sprx', 'libSceSsl.sprx'}, key=str.lower)
+EXPECTED_PARENT_NEEDED = sorted(set(EXPECTED_PARENT_NEEDED) | {
+    'libSceHttp2.prx', 'libSceSsl.prx'}, key=str.lower)
+# libSceIme's stub (ps5/title/stubs, soname libSceIme.prx, like AGC's) is
+# linked after the SDK's stubs (ps5/title/build.sh): the last needed library.
+for needed in (EXPECTED_PARENT_PRE_NEEDED, EXPECTED_PARENT_NEEDED):
+    if 'libSceIme.prx' in needed:
+        needed.remove('libSceIme.prx')
+        needed.append('libSceIme.prx')
+if selected['gpu']:
+    # SDK stubs precede custom AGC, inline-IME, then AGC-driver stubs.
+    EXPECTED_PARENT_PRE_NEEDED = [
+        'libkernel.sprx', 'libSceAudioOut.sprx', 'libSceKeyboard.sprx',
+        'libSceLibcInternal.sprx', 'libSceMouse.sprx', 'libSceNet.sprx',
+        'libSceNetCtl.sprx', 'libScePad.sprx', 'libSceSysmodule.sprx',
+        'libSceSystemService.sprx', 'libSceUserService.sprx', 'libSceVideoOut.sprx',
+        'libSceAgc.prx', 'libSceIme.prx', 'libSceAudioIn.prx', 'libSceAgcDriver.prx',
+    ]
+    EXPECTED_PARENT_NEEDED = [
+        name.replace('.sprx', '.prx') for name in EXPECTED_PARENT_PRE_NEEDED]
 NATIVE_ROLE_PROVIDERS = {
     provider for imports in native_roles.values() for provider in imports.values()
     if provider not in {'libkernel.prx', 'libSceLibcInternal.prx'}
@@ -693,32 +684,20 @@ def publish_runtime(receipt):
     require(sha(child_destination) == expected_child_sha,
             'publication child copy differs from qualified FSELF')
     published_modules = {}
-    if args.profile == 'b1':
-        source_tree = quarantine / 'wine-title'
-        require(tree_inventory(source_tree) == receipt['material']['title_root'],
-                'B1 runtime tree changed after qualification')
-        shutil.copytree(source_tree, stage / 'wine-title')
+    source_tree = quarantine / 'wine-title'
+    require(tree_inventory(source_tree) == receipt['material']['title_root'],
+            'B1 runtime tree changed after qualification')
+    shutil.copytree(source_tree, stage / 'wine-title')
     for identity in generated_manifest['modules']:
-        source = dedicated[identity['name']]
         relative = Path(identity['path'].removeprefix('/app0/'))
         require(not relative.is_absolute() and '..' not in relative.parts,
                 f'unsafe canonical module publication path: {identity["path"]}')
         destination = stage / relative
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if args.profile != 'b1':
-            shutil.copy2(source, destination)
         require(sha(destination) == identity['sha256'] and
                 destination.stat().st_size == identity['size'],
                 f'publication copy drift for {identity["name"]}')
         published_modules[identity['name']] = relative.as_posix()
     atomic_json(stage / 'runtime-qualification.json', receipt)
-    for identity in receipt['material']['test_pes']:
-        source = args.pe_dir.resolve() / identity['name']
-        require(sha(source) == identity['sha256'], 'test PE changed after qualification')
-        destination = stage / identity['path']
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source, destination)
-        require(sha(destination) == identity['sha256'], 'published test PE identity drift')
 
     publish_out.parent.mkdir(parents=True, exist_ok=True)
     require(not publish_out.is_symlink() and
@@ -744,7 +723,7 @@ def publish_runtime(receipt):
 
 policy_sha256 = sha(policy_path)
 try:
-    policy_rows = load_policy(policy_path, profile_name=args.profile)
+    policy_rows = load_policy(policy_path)
 except ValueError as error:
     raise SystemExit(str(error)) from error
 
@@ -758,48 +737,43 @@ require(build_manifest.get('feature_macro') == 'WINE_PS5_TITLE',
 require(build_manifest.get('profile') == selected,
         'runtime build profile differs from qualifier profile')
 payload_identities = {}
-if args.profile == 'b1':
-    for key, label, relative, maximum in (
-            ('writebroker', 'write broker', WRITEBROKER_RELATIVE, WRITEBROKER_MAX_BYTES),
-            ('addon_worker', 'add-on worker', ADDON_WORKER_RELATIVE, ADDON_WORKER_MAX_BYTES)):
-        path = quarantine / 'wine-title' / relative
-        regular(path, f'B1 {label} data ELF')
-        data = path.read_bytes()
-        require(data.startswith(b'\x7fELF') and 0 < len(data) <= maximum,
-                f'B1 {label} data ELF is invalid or oversized')
-        identity = {
-            'path': relative,
-            'app_path': selected['root'] + '/' + relative,
-            'classification': 'data_only_not_loaded',
-            'size': len(data),
-            'sha256': hashlib.sha256(data).hexdigest(),
-        }
-        payload_identities[key] = identity
-        require(build_manifest.get(key) == identity, f'B1 {label} build identity drift')
-else:
-    require('writebroker' not in build_manifest and 'addon_worker' not in build_manifest,
-            'non-B1 runtime unexpectedly carries payload helper data')
-if args.profile == 'b1':
-    variants = build_manifest.get('variant_compiles', {})
-    require(f'-DWINE_PS5_TITLE_ROOT={json.dumps(selected["root"])}' in variants.get('server', []),
-            'B1 server did not select the separate runtime root')
-    require('-DWINE_PS5_TITLE_PARENT_CWD=({const char *cwd=getenv("WINEPS5_TITLE_PARENT_CWD"); if (!cwd) abort(); cwd;})'
-            in variants.get('env', []),
-            'B1 parent did not select the trusted native working directory')
-    for stem in ('driver', 'winstation'):
-        require('-DWINE_PS5_TITLE_B1' in variants.get('win32u_' + stem, []),
-                f'B1 win32u {stem} did not select title child routing')
-    require('-DWINE_PS5_TITLE_B1_PARENT' in build_manifest.get('parent_loader_compile', []),
-            'B1 parent loader does not wait for the complete PsmKit session')
-    desktop = build_manifest.get('desktop', {})
-    require(desktop.get('enabled') == (not selected['headless']),
-            'B1 native desktop selection differs from the profile')
-    expected_desktop_sources = {
-        'title-desktop.c', 'title-hub.c', 'compositor.c', 'forever-menu.c',
-        'addonforge-client.c', 'display.c', 'input.c', 'pointer.c', 'ime.c',
-    } if not selected['headless'] else set()
-    require({Path(path).name for path in desktop.get('sources', [])} == expected_desktop_sources,
-            'B1 native desktop source inventory drift')
+for key, label, relative, maximum in (
+        ('writebroker', 'write broker', WRITEBROKER_RELATIVE, WRITEBROKER_MAX_BYTES),
+        ('addon_worker', 'add-on worker', ADDON_WORKER_RELATIVE, ADDON_WORKER_MAX_BYTES)):
+    path = quarantine / 'wine-title' / relative
+    regular(path, f'B1 {label} data ELF')
+    data = path.read_bytes()
+    require(data.startswith(b'\x7fELF') and 0 < len(data) <= maximum,
+            f'B1 {label} data ELF is invalid or oversized')
+    identity = {
+        'path': relative,
+        'app_path': selected['root'] + '/' + relative,
+        'classification': 'data_only_not_loaded',
+        'size': len(data),
+        'sha256': hashlib.sha256(data).hexdigest(),
+    }
+    payload_identities[key] = identity
+    require(build_manifest.get(key) == identity, f'B1 {label} build identity drift')
+variants = build_manifest.get('variant_compiles', {})
+require(f'-DWINE_PS5_TITLE_ROOT={json.dumps(selected["root"])}' in variants.get('server', []),
+        'B1 server did not select the separate runtime root')
+require('-DWINE_PS5_TITLE_PARENT_CWD=({const char *cwd=getenv("WINEPS5_TITLE_PARENT_CWD"); if (!cwd) abort(); cwd;})'
+        in variants.get('env', []),
+        'B1 parent did not select the trusted native working directory')
+for stem in ('driver', 'winstation'):
+    require('-DWINE_PS5_TITLE_B1' in variants.get('win32u_' + stem, []),
+            f'B1 win32u {stem} did not select title child routing')
+require('-DWINE_PS5_TITLE_B1_PARENT' in build_manifest.get('parent_loader_compile', []),
+        'B1 parent loader does not wait for the complete PsmKit session')
+desktop = build_manifest.get('desktop', {})
+require(desktop.get('enabled') == (not selected['headless']),
+        'B1 native desktop selection differs from the profile')
+expected_desktop_sources = {
+    'title-desktop.c', 'title-hub.c', 'compositor.c', 'forever-menu.c',
+    'addonforge-client.c', 'display.c', 'input.c', 'pointer.c', 'ime.c',
+} if not selected['headless'] else set()
+require({Path(path).name for path in desktop.get('sources', [])} == expected_desktop_sources,
+        'B1 native desktop source inventory drift')
 gpu = build_manifest.get('gpu', {})
 require(gpu.get('enabled') == selected.get('gpu', False),
         'native GPU selection differs from the profile')
@@ -848,7 +822,7 @@ dedicated.update({name: work / (name.removesuffix('.so') + '-title.so') for name
 gpu_modules = selected.get('gpu', False)
 require(candidate_manifest == make_candidate_manifest(
     {name: undefined_symbols(path) for name, path in dedicated.items()},
-    profile_name=args.profile, gpu=gpu_modules), 'candidate import manifest differs from current dedicated modules')
+    gpu=gpu_modules), 'candidate import manifest differs from current dedicated modules')
 require(build_manifest.get('candidate_manifest', {}).get('sha256') == sha(candidate_path),
         'runtime build candidate-manifest hash mismatch')
 
@@ -868,12 +842,12 @@ require(build_manifest.get('imports_manifest', {}).get('include_sha256') == sha(
 
 module_symbols = {name: undefined_symbols(path) for name, path in dedicated.items()}
 try:
-    records = make_records(module_symbols, policy_rows, profile_name=args.profile, gpu=gpu_modules)
+    records = make_records(module_symbols, policy_rows, gpu=gpu_modules)
 except ValueError as error:
     raise SystemExit(str(error)) from error
 require(generated_manifest.get('imports') == records,
         'generated imports differ from reviewed exact module union')
-require(discovered_rows(module_symbols, profile_name=args.profile, gpu=gpu_modules) == candidate_manifest['imports'],
+require(discovered_rows(module_symbols, gpu=gpu_modules) == candidate_manifest['imports'],
         'candidate manifest surface is not exact')
 require(records == sorted(records, key=lambda item: item['name']),
         'generated imports are not deterministic')
@@ -882,9 +856,9 @@ require(len(records) == len({item['name'] for item in records}),
 
 module_identities = generated_manifest.get('modules')
 require(isinstance(module_identities, list) and
-        len(module_identities) == len(module_names(args.profile, gpu_modules)),
+        len(module_identities) == len(module_names(gpu_modules)),
         'generated title module manifest count differs from the exact profile allow-list')
-require([item.get('name') for item in module_identities] == list(module_names(args.profile, gpu_modules)),
+require([item.get('name') for item in module_identities] == list(module_names(gpu_modules)),
         'generated title module identities are incomplete or out of order')
 for identity in module_identities:
     require(identity.get('name') in dedicated, 'unknown generated title module identity')
@@ -1001,10 +975,9 @@ final_surface = converted_provider_surface(native, extracted)
 actual = {item['symbol']: item['provider'] for item in pre_post_surface['imports']
           if item['provider'] in NATIVE_ROLE_PROVIDERS}
 require(actual == native_roles['child'], 'child: native role import ownership drift')
-if args.profile == 'b1':
-    require(all(native_roles['parent'].get(name) == 'libkernel.prx'
-                for name in ('connect', 'setsockopt', 'shutdown')),
-            'B1 payload transports are not explicitly reviewed for the parent')
+require(all(native_roles['parent'].get(name) == 'libkernel.prx'
+            for name in ('connect', 'setsockopt', 'shutdown')),
+        'B1 payload transports are not explicitly reviewed for the parent')
 require(patched_surface == pre_post_surface,
         'patched ELF NEEDED/provider surface differs from converted ELF')
 require(final_surface == patched_surface,
@@ -1141,33 +1114,12 @@ atomic_json(audit_file, audit_report)
 require(sha(parent_title / 'sce_module/libc.prx') == EXPECTED_TITLE_LIBC_SHA256,
         'quarantined parent libc differs from reviewed signed title libc')
 parent_inventory = tree_inventory(parent_title)
-test_pes = []
-pe_cases = () if args.profile == 'b1' else (
-    ('console.exe', 'psmkit-wine-console.exe', 0x8664, 0x20b),
-    ('p1w-parent.exe', 'psmkit-wine-parent.exe', 0x014c, 0x10b),
-    ('p1w-child.exe', 'psmkit-wine-child.exe', 0x014c, 0x10b))
-for name, leaf, machine, magic in pe_cases:
-    pe = args.pe_dir.resolve() / name
-    regular(pe, f'P1w test PE {name}')
-    data = pe.read_bytes()
-    require(len(data) >= 64 and data[:2] == b'MZ', f'{pe}: missing DOS header')
-    offset = struct.unpack_from('<I', data, 60)[0]
-    require(offset + 26 <= len(data) and data[offset:offset + 4] == b'PE\0\0' and
-            struct.unpack_from('<H', data, offset + 4)[0] == machine and
-            struct.unpack_from('<H', data, offset + 24)[0] == magic,
-            f'{pe}: wrong PE machine/optional-header magic')
-    test_pes.append({'name': name, 'path': 'wine/psmkit-wine-disposable/prefix/drive_c/' + leaf,
-                     'sha256': sha(pe), 'size': pe.stat().st_size})
-title_root_inventory = None
-if args.profile == 'b1':
-    tree = quarantine / 'wine-title'
-    root_manifest = read_json(tree / 'title-root-manifest.json', 'B1 runtime tree manifest')
-    require(root_manifest == runtime_tree_manifest(tree, selected),
-            'B1 runtime tree differs from its manifest')
-    title_root_inventory = tree_inventory(tree)
-native_resolver_audit = None
-if args.profile == 'b1':
-    native_resolver_audit = code_audit(work / 'safe-libc/netdb.o', scan_loads=False)
+tree = quarantine / 'wine-title'
+root_manifest = read_json(tree / 'title-root-manifest.json', 'B1 runtime tree manifest')
+require(root_manifest == runtime_tree_manifest(tree, selected),
+        'B1 runtime tree differs from its manifest')
+title_root_inventory = tree_inventory(tree)
+native_resolver_audit = code_audit(work / 'safe-libc/netdb.o', scan_loads=False)
 qualification_material = {
     'format': 1,
     'topology': 'PARENT_SHARED_INPROCESS_WINESERVER',
@@ -1176,7 +1128,6 @@ qualification_material = {
     **payload_identities,
     'title_root': title_root_inventory,
     'native_resolver_audit': native_resolver_audit,
-    'test_pes': test_pes,
     'qualifier_sources': {
         'inspect-runtime.py': sha(Path(__file__).resolve()),
         'runtime_imports.py': sha(here / 'runtime_imports.py'),
@@ -1255,4 +1206,4 @@ inventory_file = host_out / 'runtime-inventory.json'
 atomic_json(inventory_file, receipt)
 publication = publish_runtime(receipt)
 print(f'RUNTIME_TITLE_QUALIFIED key={qualification_key} imports={len(records)} '
-      f'raw_syscalls=0 profile={args.profile} published={publication["root"]} receipt={receipt_file}')
+      f'raw_syscalls=0 profile=b1 published={publication["root"]} receipt={receipt_file}')

@@ -2,30 +2,29 @@
 """Host semantic tests for deny-by-default title import ownership."""
 import argparse
 import copy
+import json
 from pathlib import Path
 import shlex
 import subprocess
 import tempfile
 
 from runtime_imports import (
-    NATIVE_ROLE_IMPORTS, candidate_ownership, load_policy, make_records, render_include,
+    candidate_ownership, load_policy, make_records, module_names, module_paths, render_include,
 )
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--cc', default='cc')
 args = parser.parse_args()
 here = Path(__file__).resolve().parent
-policy_path = here / 'runtime-import-policy.json'
-policy = load_policy(policy_path)
+policy_path = here / 'runtime-import-policy-b1.json'
+reviewed = load_policy(policy_path)
+# A launcher build: the policy's GPU-only module rows are not its authority.
+policy = [row for row in reviewed if row['module'] in module_names()]
 
-module_symbols = {
-    'ntdll.so': {'strong': set(), 'weak': set()},
-    'wineserver.so': {'strong': set(), 'weak': set()},
-    'win32u.so': {'strong': set(), 'weak': set()},
-}
+module_symbols = {module: {'strong': set(), 'weak': set()} for module in module_names()}
 for row in policy:
     module_symbols[row['module']][row['binding']].add(row['symbol'])
-records = make_records(module_symbols, policy)
+records = make_records(module_symbols, reviewed)
 if len(records) != len({row['symbol'] for row in policy}):
     raise SystemExit('reviewed policy did not merge deterministically')
 
@@ -67,32 +66,31 @@ if candidate_ownership('future_secret_runtime_api') != (
     raise SystemExit('unknown import received permissive candidate ownership')
 
 for symbol in ('NtGdiExtGetObjectW', 'NtGdiGetDIBitsInternal', 'NtUserGetIconInfo'):
-    if candidate_ownership(symbol, profile_name='b1') != ('title_win32u', symbol):
+    if candidate_ownership(symbol) != ('title_win32u', symbol):
         raise SystemExit(f'cursor GDI import is not owned by title win32u: {symbol}')
-    cursor_policy = load_policy(here / 'runtime-import-policy-b1.json', profile_name='b1')
-    row = next((row for row in cursor_policy
+    row = next((row for row in reviewed
                 if row['module'] == 'wineps5.so' and row['symbol'] == symbol), None)
     if not row or row['owner'] != 'title_win32u' or row['target'] != symbol:
         raise SystemExit(f'cursor GDI import missing from reviewed B1 policy: {symbol}')
 
-driver_tls = next((row for row in cursor_policy
+driver_tls = next((row for row in reviewed
                    if row['module'] == 'wineps5.so' and row['symbol'] == '__tls_get_addr'), None)
 if driver_tls:
     raise SystemExit('wineps5.so must not introduce an ELF TLS resolver import')
-driver_poll = next((row for row in cursor_policy
+driver_poll = next((row for row in reviewed
                     if row['module'] == 'wineps5.so' and row['symbol'] == 'poll'), None)
 if not driver_poll or (driver_poll['owner'], driver_poll['target']) != ('fself_public_or_platform', 'poll'):
     raise SystemExit('cursor negotiation is missing its reviewed poll import')
 
 for symbol in ('malloc', 'free', 'memcpy', 'memset', 'pthread_mutex_lock',
                'pthread_mutex_unlock', 'pthread_once', '__wine_ps5_get_vulkan_proc'):
-    row = next((row for row in cursor_policy
+    row = next((row for row in reviewed
                 if row['module'] == 'win32u.so' and row['symbol'] == symbol), None)
     owner = 'title_ntdll' if symbol == '__wine_ps5_get_vulkan_proc' else 'fself_public_or_platform'
     expected = (owner, symbol)
     if not row or (row['owner'], row['target']) != expected:
         raise SystemExit(f'title-GPU cursor dependency is not reviewed for win32u.so: {symbol}')
-if any(row['module'] == 'win32u.so' and row['symbol'] == '__tls_get_addr' for row in cursor_policy):
+if any(row['module'] == 'win32u.so' and row['symbol'] == '__tls_get_addr' for row in reviewed):
     raise SystemExit('title-GPU cursor state must not introduce an ELF TLS resolver import')
 
 
@@ -106,12 +104,12 @@ def rejected(symbols, rows, description):
 
 added = copy.deepcopy(module_symbols)
 added['ntdll.so']['strong'].add('future_secret_runtime_api')
-rejected(added, policy, 'an added symbol')
+rejected(added, reviewed, 'an added symbol')
 
 removed = copy.deepcopy(module_symbols)
 removed_row = policy[0]
 removed[removed_row['module']][removed_row['binding']].remove(removed_row['symbol'])
-rejected(removed, policy, 'a removed symbol')
+rejected(removed, reviewed, 'a removed symbol')
 
 binding = copy.deepcopy(module_symbols)
 binding_row = policy[1]
@@ -119,19 +117,14 @@ old_binding = binding_row['binding']
 new_binding = 'weak' if old_binding == 'strong' else 'strong'
 binding[binding_row['module']][old_binding].remove(binding_row['symbol'])
 binding[binding_row['module']][new_binding].add(binding_row['symbol'])
-rejected(binding, policy, 'binding drift')
+rejected(binding, reviewed, 'binding drift')
 
 with tempfile.TemporaryDirectory(prefix='pw-title-imports-') as directory:
     root = Path(directory)
     drift_policy = root / 'drift-policy.json'
-    policy_document = {
-        'format': 2,
-        'modules': ['ntdll.so', 'win32u.so', 'wineserver.so'],
-        'imports': copy.deepcopy(policy),
-        'native_roles': copy.deepcopy(NATIVE_ROLE_IMPORTS),
-    }
+    reviewed_document = json.loads(policy_path.read_text())
+    policy_document = copy.deepcopy(reviewed_document)
     policy_document['imports'][0]['target'] = 'future_secret_runtime_api'
-    import json
     drift_policy.write_text(json.dumps(policy_document))
     try:
         load_policy(drift_policy)
@@ -139,8 +132,8 @@ with tempfile.TemporaryDirectory(prefix='pw-title-imports-') as directory:
         pass
     else:
         raise SystemExit('import policy unexpectedly accepted target drift')
-    policy_document['imports'] = copy.deepcopy(policy)
-    policy_document['native_roles']['child'] = copy.deepcopy(NATIVE_ROLE_IMPORTS['parent'])
+    policy_document = copy.deepcopy(reviewed_document)
+    policy_document['native_roles']['child'] = copy.deepcopy(policy_document['native_roles']['parent'])
     drift_policy.write_text(json.dumps(policy_document))
     try:
         load_policy(drift_policy)
@@ -152,11 +145,8 @@ with tempfile.TemporaryDirectory(prefix='pw-title-imports-') as directory:
     # This small link proof deliberately supplies a real definition for the
     # unknown name. The policy gate still rejects it before native link, and
     # the reviewed table consequently cannot resolve it.
-    small_symbols = {
-        'ntdll.so': {'strong': {'dlopen'}, 'weak': set()},
-        'win32u.so': {'strong': set(), 'weak': set()},
-        'wineserver.so': {'strong': set(), 'weak': set()},
-    }
+    small_symbols = {module: {'strong': set(), 'weak': set()} for module in module_names()}
+    small_symbols['ntdll.so']['strong'].add('dlopen')
     small_policy = [{
         'module': 'ntdll.so',
         'binding': 'strong',
@@ -169,35 +159,18 @@ with tempfile.TemporaryDirectory(prefix='pw-title-imports-') as directory:
     supplied_unknown['ntdll.so']['strong'].add('future_secret_runtime_api')
     rejected(supplied_unknown, small_policy, 'an SDK/native-provided unknown symbol')
 
-    modules = [
-        {
-            'name': 'ntdll.so',
-            'path': '/app0/wine/lib/wine/x86_64-unix/ntdll.so',
-            'sha256': '00' * 32,
-            'size': 1,
-        },
-        {
-            'name': 'win32u.so',
-            'path': '/app0/wine/lib/wine/x86_64-unix/win32u.so',
-            'sha256': '22' * 32,
-            'size': 3,
-        },
-        {
-            'name': 'wineserver.so',
-            'path': '/app0/wine/psmkit-wine-disposable/bin/wineserver.so',
-            'sha256': '11' * 32,
-            'size': 2,
-        },
-    ]
-    for missing in (modules[:1] + modules[2:],):
-        try:
-            render_include(small_records, missing)
-        except ValueError:
-            pass
-        else:
-            raise SystemExit('missing win32u identity accepted')
+    paths = module_paths()
+    modules = [{'name': name, 'path': paths[name], 'sha256': f'{index + 1:02x}' * 32,
+                'size': index + 1} for index, name in enumerate(module_names())]
+    win32u = module_names().index('win32u.so')
+    try:
+        render_include(small_records, modules[:win32u] + modules[win32u + 1:])
+    except ValueError:
+        pass
+    else:
+        raise SystemExit('missing win32u identity accepted')
     bad_path = copy.deepcopy(modules)
-    bad_path[1]['path'] = '/app0/unreviewed/win32u.so'
+    bad_path[win32u]['path'] = '/app0/unreviewed/win32u.so'
     try:
         render_include(small_records, bad_path)
     except ValueError:
@@ -206,6 +179,11 @@ with tempfile.TemporaryDirectory(prefix='pw-title-imports-') as directory:
         raise SystemExit('tampered win32u path accepted')
     include = root / 'imports.inc'
     include.write_text(render_include(small_records, modules))
+    identity_checks = ' ||\n'.join(
+        f'           strcmp(title_modules[{index}].path, {json.dumps(item["path"])}) ||\n'
+        f'           title_modules[{index}].size != UINT64_C({item["size"]}) ||\n'
+        f'           title_modules[{index}].sha256[0] != 0x{item["sha256"][:2]}'
+        for index, item in enumerate(modules))
     source = root / 'provided-unknown.c'
     source.write_text(f'''#include <stdint.h>
 #include <string.h>
@@ -228,19 +206,8 @@ int main(void) {{
     (void)&exact_future_secret_runtime_api;
     return lookup("dlopen") != (uintptr_t)&exact_pw_public_dlopen ||
            lookup("future_secret_runtime_api") != 0 ||
-           sizeof(title_modules) / sizeof(title_modules[0]) != 3 ||
-           strcmp(title_modules[0].path,
-                  "/app0/wine/lib/wine/x86_64-unix/ntdll.so") ||
-           title_modules[0].size != UINT64_C(1) ||
-           title_modules[0].sha256[0] != 0x00 ||
-           strcmp(title_modules[1].path,
-                  "/app0/wine/lib/wine/x86_64-unix/win32u.so") ||
-           title_modules[1].size != UINT64_C(3) ||
-           title_modules[1].sha256[0] != 0x22 ||
-           strcmp(title_modules[2].path,
-                  "/app0/wine/psmkit-wine-disposable/bin/wineserver.so") ||
-           title_modules[2].size != UINT64_C(2) ||
-           title_modules[2].sha256[0] != 0x11;
+           sizeof(title_modules) / sizeof(title_modules[0]) != {len(modules)} ||
+{identity_checks};
 }}
 ''')
     executable = root / 'provided-unknown'

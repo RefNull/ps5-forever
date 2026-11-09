@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Rewrite the probe child's app process parameters to the PS5 local-helper layout.
+"""Rewrite the runtime child's app process parameters to the PS5 local-helper layout.
 
 The layout comes from firmware 5.50's NKUIProcess.self, NKNetworkProcess.self,
-NKWebProcess.self and webrtc_daemon.self. It is deliberately probe-local until
-that profile has run successfully on the console.
+NKWebProcess.self and webrtc_daemon.self. The SDK fields stay the title
+eboot's: firmware 11.60 refuses a child carrying 5.50's local-helper SDK pair.
 """
 
 import argparse
@@ -29,8 +29,6 @@ R_X86_64_64 = 1
 R_X86_64_RELATIVE = 8
 STT_OBJECT = 1
 NEED_LIBC_NID = "ZT4ODD2Ts9o#"
-LOCAL_COMPANION_SDK = 0x09690001
-LOCAL_MODULE_SDK = 0x05500008
 TITLE_COMPANION_SDK = 0x08050001
 TITLE_MODULE_SDK = 0x02000009
 FSELF_MAGIC = 0x1D3D154F
@@ -48,10 +46,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--container", action="store_true",
                         help="rewrite a signed probe FSELF's program classification")
-    parser.add_argument("--sdk", choices=("local", "title"), default="local",
-                        help="process SDK fields: 'local' copies 5.50's firmware helpers "
-                             "(0x09690001/0x05500008); 'title' uses the title eboot's "
-                             "(0x08050001/0x02000009)")
     parser.add_argument("input", type=Path)
     parser.add_argument("output", type=Path)
     args = parser.parse_args()
@@ -211,10 +205,8 @@ def main():
     require(actual_targets == sorted(expected_targets), "unexpected relocation in local blocks")
 
 
-    companion, module = ((LOCAL_COMPANION_SDK, LOCAL_MODULE_SDK) if args.sdk == "local"
-                         else (TITLE_COMPANION_SDK, TITLE_MODULE_SDK))
-    struct.pack_into("<I", data, proc_file + 0x10, companion)
-    struct.pack_into("<I", data, proc_file + 0x14, module)
+    struct.pack_into("<I", data, proc_file + 0x10, TITLE_COMPANION_SDK)
+    struct.pack_into("<I", data, proc_file + 0x14, TITLE_MODULE_SDK)
     args.output.write_bytes(data)
     print(f"local-helper: {args.output} sha256 {hashlib.sha256(data).hexdigest()}")
 

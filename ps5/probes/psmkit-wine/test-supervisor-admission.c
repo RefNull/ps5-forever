@@ -11,7 +11,6 @@
 #include "protocol.h"
 #include "../../title/forever-menu.h"
 
-#define PW_RUNTIME_B1 1
 #define PW_RUNTIME_HEADLESS 0
 #define PW_RUNTIME_GPU 0
 struct wine_ps5_title_spawn { char *const *argv; unsigned windows_pid; };

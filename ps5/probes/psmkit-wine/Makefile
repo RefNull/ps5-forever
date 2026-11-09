@@ -1,16 +1,7 @@
 .NOTPARALLEL:
 .DELETE_ON_ERROR:
-OUT := ../../build/title-psmkit-wine-descriptor
-WORK := ../../build/title-psmkit-wine-descriptor-work
-CHILD_OUT := ../../build/title-psmkit-wine-descriptor-child
-CHILD_WORK := ../../build/title-psmkit-wine-descriptor-child-work
 HOST_OUT := ../../build/psmkit-wine-host
 PE_OUT := ../../build/psmkit-wine-pe
-TITLE_BUILD := ../../title/build.sh
-TITLE_PARAM := ../../title/sce_sys/param.json
-PS5_VULKAN ?= $(abspath ../../../../../PS5_Vulkan)
-NATIVE_TOOL ?= $(PS5_VULKAN)/build/host/ps5-native-tool
-PATCH := ../localproc/patch-local-helper.py
 IO := ../localproc/psmkit-io.c
 WINE_SRC ?= $(abspath ../../../../ps5-wine)
 PREFIX_INIT_HEADER := $(WINE_SRC)/include/wine/ps5_prefix_init.h
@@ -19,7 +10,6 @@ HOST_CC ?= cc
 HOST_CXX ?= c++
 LLVM_MINGW ?= $(HOME)/llvm-mingw
 MINGW_CC ?= $(LLVM_MINGW)/bin/x86_64-w64-mingw32-clang
-MINGW32_CC ?= $(LLVM_MINGW)/bin/i686-w64-mingw32-clang
 WINE_BUILD ?= ../../build/wine-ps5-build
 WINEBUILD ?= ../../build/wine-ps5-tools/tools/winebuild/winebuild
 WRITEBROKER_ELF := ../../build/writebroker/writebroker.elf
@@ -28,9 +18,6 @@ ADDON_WORKER_ELF := ../../build/addon-worker/addon-worker.elf
 ADDON_WORKER_DIR := ../../addon-worker
 ADDON_WORKER_MINIZ := miniz miniz_tinfl miniz_tdef miniz_zip
 ADDON_WORKER_HOST_OBJECTS := $(addprefix $(HOST_OUT)/addon-worker-,$(addsuffix .o,$(ADDON_WORKER_MINIZ)))
-RUNTIME_OUT := ../../build/title-psmkit-wine-runtime
-RUNTIME_QUARANTINE := ../../build/title-psmkit-wine-runtime-quarantine
-RUNTIME_PARENT := $(RUNTIME_QUARANTINE)/parent-title
 PLATFORM_SRC ?= $(abspath ../../../../../PS5_PayloadSDK/platform)
 # Override B1_OUT for isolated publications; every intermediate follows it.
 B1_OUT ?= ../../build/title-psmkit-wine-b1
@@ -49,26 +36,7 @@ TITLE_VOICE += ../../title/voice-model.h forever-download.h
 TITLE_VOICE += ../../title/voice-overlay-raster.c ../../title/voice-overlay-raster.h \
 	../../title/voice-overlay-vulkan.c ../../title/voice-overlay-vulkan.h ../../title/bitmap-font.h
 
-.PHONY: all descriptor test test-startup-routing test-runtime-profile pe runtime runtime-b1 runtime-b1-dual runtime-child runtime-parent runtime-qualification test-staged
-all: descriptor pe
-# Intentionally not named runtime: no Wine loader is entered by this gate.
-descriptor: $(OUT)/eboot.bin $(OUT)/psmkit-wine-descriptor-child.bin
-pe: $(PE_OUT)/console.exe $(PE_OUT)/p1w-parent.exe $(PE_OUT)/p1w-child.exe \
-		$(PE_OUT)/audio-tone.exe
-
-runtime: runtime-qualification
-
-# One build creates both roles with the same reviewed import/module manifest.
-runtime-child:
-	python3 build-runtime.py --wine-build "$(WINE_BUILD)"
-
-runtime-parent: runtime-child
-
-runtime-qualification: runtime-child pe $(HOST_OUT)/test-staged-runtime
-	python3 inspect-runtime.py --wine-build "$(WINE_BUILD)" \
-		--host-test "$(HOST_OUT)/test-staged-runtime" \
-		--parent-title "$(RUNTIME_PARENT)" --publish "$(RUNTIME_OUT)" \
-		--pe-dir "$(PE_OUT)"
+.PHONY: test test-startup-routing test-runtime-profile runtime-b1 runtime-b1-dual
 
 runtime-b1: $(HOST_OUT)/test-staged-runtime build-runtime.py runtime_profiles.py \
 		runtime_imports.py runtime-import-policy-b1.json native-entry.c runtime-parent.c \
@@ -84,9 +52,9 @@ runtime-b1: $(HOST_OUT)/test-staged-runtime build-runtime.py runtime_profiles.py
 	# B1 installs Wine's PE tree (make install-lib), which runs the i686/x86_64
 	# mingw compilers configure chose; they live in llvm-mingw's bin.
 	PATH="$(dir $(MINGW_CC)):$$PATH" python3 build-runtime.py --wine-build "$(WINE_BUILD)" \
-		--profile b1 $(B1_CONFIG_ARG) --writebroker-elf "$(WRITEBROKER_ELF)" \
+		$(B1_CONFIG_ARG) --writebroker-elf "$(WRITEBROKER_ELF)" \
 		--addon-worker-elf "$(ADDON_WORKER_ELF)" --quarantine "$(B1_QUARANTINE)"
-	python3 inspect-runtime.py --wine-build "$(WINE_BUILD)" --profile b1 $(B1_CONFIG_ARG) \
+	python3 inspect-runtime.py --wine-build "$(WINE_BUILD)" $(B1_CONFIG_ARG) \
 		--host-test "$(HOST_OUT)/test-staged-runtime" \
 		--parent-title "$(B1_QUARANTINE)/parent-title" --quarantine "$(B1_QUARANTINE)" --publish "$(B1_OUT)"
 
@@ -111,10 +79,6 @@ runtime-b1-dual:
 	python3 combine-b1-runtime.py --maintenance "$(B1_MAINTENANCE_OUT)" \
 		--game "$(B1_GAME_OUT)" --output "$(B1_OUT)"
 
-.PHONY: radv-release-patched
-radv-release-patched:
-	python3 ../../radv/build-radv.py
-
 # Requires the configured Wine host tools; deliberately separate from test.
 .PHONY: test-winebuild-delayload
 test-winebuild-delayload: test-winebuild-delayload.py $(WINEBUILD)
@@ -133,8 +97,6 @@ test-build-speed: test-build-speed.py ../../configure-stamp.py ../../release/pac
 .PHONY: test-pins
 test-pins:
 	python3 ../../release/pins.py check
-
-test-staged: runtime-qualification
 
 $(HOST_OUT)/test-staged-runtime: test-staged-runtime.c elf-runtime.c elf-runtime.h sha256.h
 	mkdir -p $(HOST_OUT)
@@ -456,7 +418,7 @@ $(HOST_OUT)/test-title-voice-overlay-vulkan: test-title-voice-overlay-vulkan.c .
 		test-title-voice-overlay-vulkan.c ../../title/voice-overlay-raster.c -o $@
 
 $(HOST_OUT)/test-runtime-imports: test-runtime-imports.py runtime_imports.py runtime_profiles.py \
-		runtime-import-policy.json Makefile
+		runtime-import-policy-b1.json Makefile
 	mkdir -p $(HOST_OUT)
 	printf '%s\n' '#!/bin/sh' \
 		'here=$$(CDPATH= cd -- "$$(dirname -- "$$0")" && pwd)' \
@@ -525,36 +487,6 @@ $(HOST_OUT)/test-startup-routing: test-startup-routing.c build-startup-routing-t
 $(HOST_OUT)/non-ps5/test-startup-routing: test-startup-routing.c build-startup-routing-test.py $(WINE_SRC)/dlls/ntdll/unix/loader.c $(WINE_SRC)/dlls/ntdll/unix/env.c
 	python3 build-startup-routing-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)" --non-ps5
 
-$(OUT)/eboot.bin: parent.c protocol.c protocol.h $(IO) ../localproc/probe.h $(TITLE_BUILD) $(TITLE_PARAM)
-	WINE_SRC="$(WINE_SRC)" PS5_TITLE_RADV= PS5_TITLE_WORK="$(abspath $(WORK))" \
-		bash $(TITLE_BUILD) $(OUT) parent.c protocol.c $(IO)
-
-$(CHILD_OUT)/eboot.bin: child.c protocol.c protocol.h $(IO) $(PATCH) $(TITLE_BUILD) $(TITLE_PARAM)
-	WINE_SRC="$(WINE_SRC)" PS5_TITLE_RADV= PS5_TITLE_WORK="$(abspath $(CHILD_WORK))" \
-		bash $(TITLE_BUILD) $(CHILD_OUT) child.c protocol.c $(IO)
-	python3 $(PATCH) $(CHILD_WORK)/eboot.elf $(CHILD_WORK)/localproc.elf
-	$(NATIVE_TOOL) self --sign --in $(CHILD_WORK)/localproc.elf --out $@ --magic 0x1D3D154F
-	python3 $(PATCH) --container $@ $@
-	$(NATIVE_TOOL) self --inspect --file $@
-
-$(OUT)/psmkit-wine-descriptor-child.bin: $(CHILD_OUT)/eboot.bin $(OUT)/eboot.bin
-	cp $(CHILD_OUT)/eboot.bin $@
-
-$(PE_OUT)/p1w-parent.exe: p1w-parent.c
-	mkdir -p $(PE_OUT)
-	$(MINGW32_CC) -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -nostdlib \
-		-Wl,--subsystem,console -Wl,--entry,mainCRTStartup -o $@ $< -lkernel32 -luser32
-
-$(PE_OUT)/p1w-child.exe: p1w-child.c
-	mkdir -p $(PE_OUT)
-	$(MINGW32_CC) -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -nostdlib \
-		-Wl,--subsystem,console -Wl,--entry,mainCRTStartup -o $@ $< -lkernel32 -luser32
-
 $(PE_OUT)/audio-tone.exe: audio-tone.c
 	mkdir -p $(PE_OUT)
 	$(MINGW_CC) -O2 -Wall -Wextra -Werror -o $@ $< -lwinmm
-
-$(PE_OUT)/%.exe: %.c
-	mkdir -p $(PE_OUT)
-	$(MINGW_CC) -O2 -Wall -Wextra -Werror -ffreestanding -fno-stack-protector -nostdlib \
-		-Wl,--subsystem,console -Wl,--entry,mainCRTStartup -o $@ $< -lkernel32

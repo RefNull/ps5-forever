@@ -1,20 +1,6 @@
 #!/usr/bin/env python3
-"""Upload the staged Wine tree to the PS5 and start a Windows program with it.
+"""Deploy and run the B1 launcher title on the PS5 over FTP.
 
-  ps5/deploy-wine.py upload            ps5/build/stage$WINE_ROOT -> $WINE_ROOT (ps5/paths.sh)
-  ps5/deploy-wine.py upload --verify   hash on the console; replace differing or missing files
-      first build the read-only payload with: make -C ps5/probes/sha256tree
-  ps5/deploy-wine.py run PROGRAM [ARG...]
-      write $WINE_ROOT/boot.txt and send the Wine loader to the ELF
-      loader (port 9021); prints what the loader streams back (Wine's stdout
-      and stderr) until the connection closes or --timeout passes. The
-      console's klog (port 3232) is saved for the whole run, with Wine's
-      output, under ps5/build/runs/<time>.{klog,out}.
-      --prefix PATH selects a disposable prefix; --env HOME=PATH and --cwd
-      select its home and working directory. Registry checks use that prefix,
-      and never restore the real prefix's registry into an alternate one.
-      --loader PATH selects the local payload ELF; default: the staged Wine
-      loader. This does not change Wine's installed console path.
   ps5/deploy-wine.py upload-title DIR  ps5/title/build.sh's DIR -> /data/homebrew/$TITLE_ID
       (eboot.bin, sce_sys, sce_module beside wine/; nothing is deleted)
   ps5/deploy-wine.py title launch|kill|restart
@@ -25,21 +11,15 @@
       require title count=0, disable FTP SELF conversion, and make a fresh
       byte/hash/absence backup at ps5/build/runs/RUN-backup/before.json
   ps5/deploy-wine.py title-restore RUN
-      stop Wine, restore that backup byte-exactly, delete originally absent
+      stop the title, restore that backup byte-exactly, delete originally absent
       disposable trees through a saved root-constrained inventory, and require
       title count=0
-  ps5/deploy-wine.py runtime-title-run RUN --paths-from BEFORE.json --until REGEX
-      one bounded PsmKit-Wine transaction: backup, WoW64 prefix readiness,
-      guarded upload verification, one run-title launch, and guaranteed restore
+  ps5/deploy-wine.py title-root-upload | b1-title-run RUN | b1-title-install RUN
+      upload, launch once, or install the qualified B1 title (build/title-psmkit-wine-b1)
+  ps5/deploy-wine.py prefix-permissions --log FILE
+      open a prefix tree to every console process
 
-PROGRAM is a console path under $WINE_ROOT, Wine's Z: drive
-($WINE_ROOT/tests/m3/m3test.exe), or a Windows path. Everything Wine uses on
-the console lives in $WINE_ROOT (/data/homebrew/PPSA99030/wine, inside the
-launcher title's folder): the install (bin, lib, share), the prefix (prefix),
-HOME (home) and test programs (tests).
-Files whose size and previously uploaded hash match are skipped on plain upload.
---verify hashes the console tree through the ELF loader, without FTP downloads.
-Host: PS5_HOST (default 10.0.1.41), FTP_PORT (2121), LOADER_PORT (9021), KLOG_PORT (3232).
+Host: PS5_HOST, FTP_PORT (2121), LOADER_PORT (9021), PS5VKCTL_PORT (9111).
 """
 import argparse
 import hashlib
@@ -50,7 +30,6 @@ import os
 import subprocess
 import socket
 import sys
-import threading
 import time
 from ftplib import FTP, error_perm, error_reply
 from pathlib import Path
@@ -64,12 +43,9 @@ from runtime_profiles import (
 TITLE_ID = next(line.split("=", 1)[1].strip() for line in (HERE / "paths.sh").read_text().splitlines()
                 if line.startswith("TITLE_ID="))
 REMOTE = f"/data/homebrew/{TITLE_ID}/wine"
-STAGE = HERE / "build/stage" / REMOTE.lstrip("/")
-LOADER = REMOTE + "/lib/wine/x86_64-unix/wine"
 HOST = os.environ.get("PS5_HOST", "10.0.1.41")
 FTP_PORT = int(os.environ.get("FTP_PORT", "2121"))
 LOADER_PORT = int(os.environ.get("LOADER_PORT", "9021"))
-KLOG_PORT = int(os.environ.get("KLOG_PORT", "3232"))
 RUNS = HERE / "build/runs"
 
 ENV = [
@@ -89,54 +65,11 @@ ENV = [
     # has its own keyboard.
     "WINEDLLOVERRIDES=winemenubuilder.exe=d;mscoree=d;mshtml=d;winedbg.exe=d;msv1_0=d;kerberos=d;tabtip.exe=d",
 ]
-WINDOWS_RUNTIME_MODULES = (
-    ("x86_64-windows", "system32",
-     ("ntdll", "wow64", "wow64cpu", "wow64win", "kernelbase", "kernel32", "win32u")),
-    # user32 and its static import closure, for the PE32 win32k step.
-    ("i386-windows", "syswow64", ("ntdll", "kernelbase", "kernel32", "win32u", "user32",
-                                  "gdi32", "advapi32", "sechost", "msvcrt", "ucrtbase")),
-)
-
-def matching_windows_runtime(wine_build, prefix):
-    files = []
-    for bits, destination, names in WINDOWS_RUNTIME_MODULES:
-        for name in names:
-            local = wine_build / "dlls" / name / bits / f"{name}.dll"
-            if not local.is_file():
-                raise RuntimeError(f"matching Windows runtime is missing: {local}")
-            files.append((local,
-                          f"{prefix}/drive_c/windows/{destination}/{name}.dll",
-                          f"{REMOTE}/lib/wine/{bits}/{name}.dll"))
-        start = wine_build / "programs/start" / bits / "start.exe"
-        if not start.is_file():
-            raise RuntimeError(f"matching Windows runtime is missing: {start}")
-        files.append((start,
-                      f"{prefix}/drive_c/windows/{destination}/start.exe",
-                      f"{REMOTE}/lib/wine/{bits}/start.exe"))
-    return files
-
-
-
-
 def connect():
     ftp = FTP()
     ftp.connect(HOST, FTP_PORT, timeout=30)
     ftp.login()
     return ftp
-
-
-def remote_sizes(ftp, path):
-    sizes = {}
-    try:
-        lines = []
-        ftp.retrlines(f"LIST {path}", lines.append)
-        for line in lines:
-            parts = line.split(None, 8)
-            if len(parts) == 9 and not parts[0].startswith("d"):
-                sizes[parts[8]] = int(parts[4])
-    except error_perm:
-        pass
-    return sizes
 
 
 def mkdirs(ftp, path, made):
@@ -150,78 +83,6 @@ def mkdirs(ftp, path, made):
         except error_perm:
             pass
         made.add(p)
-
-
-MANIFEST = HERE / "build/uploaded-sha256.json"
-SHA256TREE = HERE / "probes/sha256tree/sha256tree.elf"
-
-
-def remote_hashes():
-    import re
-    from io import BytesIO
-    if not SHA256TREE.exists():
-        raise SystemExit(f"missing {SHA256TREE}: build ps5/probes/sha256tree")
-    output = BytesIO()
-    send_payload(SHA256TREE.read_bytes(), 600, output, r"(?m)^sha256tree: end files=\d+\r?$", echo=False)
-    hashes, count = {}, None
-    for line in output.getvalue().decode(errors="replace").splitlines():
-        if line.startswith("sha256tree: error:"):
-            raise SystemExit("sha256tree verification failed; see payload output")
-        match = re.fullmatch(r"sha256tree: ([0-9a-f]{64}) (\d+) (.+)", line)
-        if match:
-            digest, size, path = match.groups()
-            hashes[path] = (digest, int(size))
-        else:
-            match = re.fullmatch(r"sha256tree: end files=(\d+)", line)
-            if match:
-                count = int(match[1])
-    if count is None or count != len(hashes):
-        raise SystemExit("incomplete sha256tree output; upload not started")
-    return hashes
-
-
-def upload(args):
-    # A rebuilt file can keep its size, so a file is skipped only when the
-    # console has its size and this host uploaded these exact bytes before.
-    # A console that crashes can lose recent writes while keeping the file
-    # size; --verify hashes the console tree locally, without FTP downloads.
-    import hashlib
-    import json
-    manifest = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else {}
-    hashes = remote_hashes() if args.verify else {}
-    ftp = connect()
-    made, sent, skipped, damaged, total = set(), 0, 0, 0, 0
-    for root, dirs, files in os.walk(STAGE):
-        rel = os.path.relpath(root, STAGE)
-        rdir = REMOTE if rel == "." else f"{REMOTE}/{rel}"
-        mkdirs(ftp, rdir, made)
-        sizes = {} if args.verify else remote_sizes(ftp, rdir)
-        for name in sorted(files):
-            local = Path(root) / name
-            if local.is_symlink():
-                continue  # the bin/ launch links point at a script the PS5 cannot run
-            data = local.read_bytes()
-            digest = hashlib.sha256(data).hexdigest()
-            remote = f"{rdir}/{name}"
-            same = (hashes.get(remote) == (digest, len(data)) if args.verify else
-                    sizes.get(name) == len(data) and manifest.get(remote) == digest)
-            if same:
-                if args.verify:
-                    manifest[remote] = digest
-                skipped += 1
-                continue
-            if args.verify and remote in hashes:
-                damaged += 1
-                print(f"differs on the console: {remote}")
-            with local.open("rb") as f:
-                ftp.storbinary(f"STOR {remote}", f)
-            manifest[remote] = digest
-            sent += 1
-            total += len(data)
-    ftp.quit()
-    MANIFEST.write_text(json.dumps(manifest, indent=0, sort_keys=True))
-    print(f"uploaded {sent} files ({total / 1e6:.1f} MB), {skipped} already there"
-          + (f", {damaged} damaged copies replaced" if args.verify else ""))
 
 
 TITLE_ROOT = f"/data/homebrew/{TITLE_ID}"
@@ -312,10 +173,7 @@ def title_backup(args):
     if not isinstance(source_paths, dict) or not source_paths:
         raise SystemExit(f"{args.paths_from}: missing non-empty paths object")
     source_paths = dict(source_paths)
-    extra_paths = set(getattr(args, "extra_paths", ()))
-    added_paths = set(source_paths) if guards is not None else extra_paths.difference(source_paths)
-    for remote in extra_paths:
-        source_paths.setdefault(remote, {})
+    added_paths = set(source_paths) if guards is not None else set()
     procs = control("procs")
     if "count=0" not in procs:
         raise SystemExit(f"title is not idle: {procs}")
@@ -416,16 +274,13 @@ def title_restore(args):
     before = json.loads((backup / "before.json").read_text())
     paths = before["paths"]
     title_only = getattr(args, "title_only", False) or before.get("restore_mode") == "TITLE_ONLY"
-    if title_only:
-        if "count=0" not in control("procs"):
-            control(f"kill {TITLE_ID}")
-        deadline = time.monotonic() + 30
-        while "count=0" not in control("procs"):
-            if time.monotonic() >= deadline:
-                raise RuntimeError("title did not stop before B1 restoration")
-            time.sleep(0.25)
-    else:
-        kill(argparse.Namespace())
+    if "count=0" not in control("procs"):
+        control(f"kill {TITLE_ID}")
+    deadline = time.monotonic() + 30
+    while "count=0" not in control("procs"):
+        if time.monotonic() >= deadline:
+            raise RuntimeError("title did not stop before restoration")
+        time.sleep(0.25)
     ftp, reply = raw_connect()
     restored, absent, plans = {}, [], {}
     try:
@@ -510,166 +365,6 @@ def title_restore(args):
     print(f"title-restore: {backup} restored={len(restored)} absent={len(absent)} {procs}")
 
 
-def runtime_title_run(args):
-    """One bounded PsmKit-Wine title fixture/deploy/launch/restore transaction."""
-    from io import BytesIO
-    if not WINEKILL.is_file():
-        raise SystemExit(f"missing {WINEKILL}: build ps5/probes/winekill before a title transaction")
-    backup = RUNS / f"{args.run}-backup"
-    prefix_root = f"{REMOTE}/psmkit-wine-disposable"
-    prefix = prefix_root + "/prefix"
-    home = prefix_root + "/home"
-    wine_build = Path(args.wine_build).resolve()
-    loader = wine_build / "loader/wine"
-    if not loader.is_file():
-        raise SystemExit(f"missing regular payload loader {loader}: rebuild loader/all with "
-                         f"ps5/build-wine.sh in --wine-build {wine_build} before a title transaction")
-    loader_data = loader.read_bytes()
-    loader_metadata = {
-        "local": str(loader), "bytes": len(loader_data),
-        "sha256": hashlib.sha256(loader_data).hexdigest(),
-        "wine_build": str(wine_build),
-    }
-    windows_runtime = matching_windows_runtime(wine_build, prefix)
-    launched = False
-    launch_result = None
-
-    folder = Path(args.folder).resolve()
-    published = [f"{TITLE_ROOT}/{path.relative_to(folder).as_posix()}"
-                 for path in sorted(folder.rglob("*")) if path.is_file()]
-    # Every file the transaction writes must be in the guarded backup set.
-    title_backup(argparse.Namespace(
-        run=args.run, paths_from=args.paths_from,
-        extra_paths=[installed for _, _, installed in windows_runtime] + published))
-    before = json.loads((backup / "before.json").read_text())
-    try:
-        prep = subprocess.Popen([
-            sys.executable, str(HERE / "watchdog-run.py"), "--max-execs", "40", "--",
-            "--prefix", prefix, "--env", f"HOME={home}", "--env", "WINEARCH=win64",
-            "--timeout", "240", "--loader", str(loader),
-            "C:\\windows\\system32\\wineboot.exe", "--", "-i",
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        required = [
-            *(f"{prefix}/{name}" for name in REGISTRY),
-            f"{prefix}/.update-timestamp",
-            f"{prefix}/drive_c/windows/system32/ntdll.dll",
-            f"{prefix}/drive_c/windows/system32/wow64.dll",
-            f"{prefix}/drive_c/windows/system32/wow64cpu.dll",
-            f"{prefix}/drive_c/windows/syswow64/ntdll.dll",
-            f"{prefix}/drive_c/windows/syswow64/kernel32.dll",
-        ]
-        deadline = time.monotonic() + 180
-        fixture = None
-        try:
-            while time.monotonic() < deadline:
-                time.sleep(2)
-                try:
-                    ftp, reply = raw_connect()
-                    values = {path: ftp_bytes(ftp, path) for path in required}
-                    ftp.quit()
-                    if (all(values[f"{prefix}/{name}"].startswith(b"WINE REGISTRY Version 2\n")
-                            for name in REGISTRY) and
-                            values[f"{prefix}/.update-timestamp"].strip().isdigit()):
-                        fixture = {
-                            "format": 2, "readiness": "REGISTRIES_TIMESTAMP_WOW64_DLLS_PRESENT",
-                            "raw_ftp_reply": reply,
-                            "payload_loader": loader_metadata,
-                            "files": {path: {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()}
-                                      for path, data in values.items()},
-                        }
-                        break
-                except (OSError, error_perm, error_reply):
-                    pass
-            if fixture is None:
-                raise RuntimeError("disposable WoW64 prefix did not reach readiness")
-        finally:
-            prep.terminate()
-            try:
-                prep.wait(timeout=30)
-            except subprocess.TimeoutExpired:
-                prep.kill()
-                prep.wait()
-
-        kill(argparse.Namespace())
-        ftp, _ = raw_connect()
-        boot = f"{REMOTE}/boot.txt"
-        boot_metadata = before["paths"][boot]
-        original_boot = Path(boot_metadata["backup"]).read_bytes()
-        fixture["boot_txt_restored_from_backup"] = ftp_bytes(ftp, boot) != original_boot
-        if fixture["boot_txt_restored_from_backup"]:
-            ftp.storbinary(f"STOR {boot}", BytesIO(original_boot))
-        for remote, metadata in before["paths"].items():
-            if metadata["present"] and hashlib.sha256(ftp_bytes(ftp, remote)).hexdigest() != metadata["sha256"]:
-                raise RuntimeError(f"guard changed before deployment: {remote}")
-        matched = {}
-        for local, prefix_remote, installed_remote in windows_runtime:
-            data = local.read_bytes()
-            for remote in (prefix_remote, installed_remote):
-                ftp.storbinary(f"STOR {remote}", BytesIO(data), blocksize=1 << 16)
-                if ftp_bytes(ftp, remote) != data:
-                    raise RuntimeError(f"matching Windows runtime differs after upload: {remote}")
-                matched[remote] = {
-                    "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
-                    "local": str(local),
-                }
-        fixture["matching_windows_runtime"] = matched
-        ftp.quit()
-        (backup / "fixture-initialization.json").write_text(
-            json.dumps(fixture, indent=2, sort_keys=True) + "\n")
-
-        # folder resolved before the backup; its files are guarded paths
-        qualification = json.loads((folder / "runtime-qualification.json").read_text())
-        upload_title(argparse.Namespace(folder=str(folder)))
-        ftp, reply = raw_connect()
-        deployed = {}
-        for local in sorted(path for path in folder.rglob("*") if path.is_file()):
-            relative = local.relative_to(folder).as_posix()
-            remote = f"{TITLE_ROOT}/{relative}"
-            data = ftp_bytes(ftp, remote)
-            if data != local.read_bytes():
-                raise RuntimeError(f"published file differs: {remote}")
-            deployed[remote] = {
-                "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
-                "local": str(local),
-            }
-        if hashlib.sha256(ftp_bytes(ftp, boot)).hexdigest() != boot_metadata["sha256"]:
-            raise RuntimeError("boot.txt changed before launch")
-        ftp.quit()
-        (backup / "deployed-all.json").write_text(json.dumps({
-            "format": 1, "raw_ftp_reply": reply, "files": deployed,
-            "qualification_digest": qualification["qualification_key"],
-            "guards": "MATCHED_BEFORE_LAUNCH",
-        }, indent=2, sort_keys=True) + "\n")
-
-        command = [
-            sys.executable,
-            str(HERE.parent.parent.parent / "PS5_Vulkan/tools/run-title.py"),
-            TITLE_ID, "--until", args.until, "--timeout", str(args.timeout),
-            "--exit-grace", str(args.exit_grace),
-            "--output", str(RUNS / f"{args.run}.klog"),
-        ]
-        if args.echo:
-            command += ["--echo", args.echo]
-        if args.elf:
-            command += ["--elf", args.elf]
-        launched = True
-        result = subprocess.run(command)
-        launch_result = {
-            "command": command, "returncode": result.returncode,
-            "title_launches": 1, "qualification_digest": qualification["qualification_key"],
-        }
-        (backup / "launch.json").write_text(json.dumps(launch_result, indent=2) + "\n")
-    finally:
-        title_restore(argparse.Namespace(run=args.run))
-        if launch_result is None:
-            (backup / "launch.json").write_text(json.dumps({
-                "title_launches": int(launched), "returncode": None,
-                "failure": "transaction ended before run-title returned",
-            }, indent=2) + "\n")
-    if launch_result["returncode"]:
-        raise SystemExit(launch_result["returncode"])
-
-
 def ftp_identity(ftp, remote):
     digest = hashlib.sha256()
     size = 0
@@ -734,6 +429,9 @@ def title_root_upload(args):
     path = HERE / "build/title-root-upload.json"
     path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n")
     print(f"title-root-upload: {root} verified={len(verified)} pe_dlls={manifest['pe_dll_counts']} receipt={path}")
+
+
+REGISTRY = ("system.reg", "user.reg", "userdef.reg")
 
 
 def b1_preflight(folder, require_battlenet=True):
@@ -960,189 +658,6 @@ def b1_title_run(args):
         raise SystemExit(launch_result["returncode"])
 
 
-WINEKILL = HERE / "probes/winekill/winekill.elf"
-
-
-def send_payload(elf, timeout, log=None, until=None, echo=True):
-    """Send an ELF to the console's loader; print (unless echo is False) and log
-    what it streams back until the connection closes, the timeout passes, or the
-    regex until matches."""
-    import re
-    seen = ""
-    s = socket.create_connection((HOST, LOADER_PORT), timeout=10)
-    s.sendall(elf)
-    s.shutdown(socket.SHUT_WR)
-    s.settimeout(1.0)
-    end = time.time() + timeout
-    while time.time() < end:
-        try:
-            data = s.recv(65536)
-        except socket.timeout:
-            continue
-        if not data:
-            break
-        text = data.decode(errors="replace")
-        if echo:
-            sys.stdout.write(text)
-            sys.stdout.flush()
-        if log:
-            log.write(data)
-            log.flush()
-        if until:
-            seen = (seen + text)[-65536:]
-            if re.search(until, seen):
-                break
-    s.close()
-
-
-def capture_klog(path, stop):
-    """Append the console's klog to path until stop is set; a lost klog only ends the capture."""
-    try:
-        s = socket.create_connection((HOST, KLOG_PORT), timeout=10)
-    except OSError as e:
-        print(f"klog not captured: {e}", file=sys.stderr)
-        return
-    s.settimeout(1.0)
-    try:
-        with path.open("wb") as out:
-            while not stop.is_set():
-                try:
-                    data = s.recv(65536)
-                except socket.timeout:
-                    continue
-                if not data:
-                    break
-                out.write(data)
-                out.flush()
-    except OSError as e:
-        print(f"klog capture ended: {e}", file=sys.stderr)
-    finally:
-        s.close()
-
-
-def kill(args):
-    """End the Wine session on the console (ps5/probes/winekill)."""
-    if not WINEKILL.exists():
-        raise SystemExit(f"missing {WINEKILL}: build ps5/probes/winekill")
-    send_payload(WINEKILL.read_bytes(), 20)
-
-
-REGISTRY = ("system.reg", "user.reg", "userdef.reg")
-
-
-def check_registry(ftp, dest, prefix):
-    """Back up the selected prefix's registries before a session.
-
-    Only the default prefix may be repaired from its historical backups.
-    Alternate prefixes, including fresh disposable ones, must never inherit
-    registry files from the real prefix."""
-    from io import BytesIO
-    header = b"WINE REGISTRY Version 2"
-    for name in REGISTRY:
-        data = BytesIO()
-        try:
-            ftp.retrbinary(f"RETR {prefix}/{name}", data.write)
-        except Exception:
-            pass
-        if data.getvalue().startswith(header):
-            dest.mkdir(parents=True, exist_ok=True)
-            (dest / name).write_bytes(data.getvalue())
-            continue
-        if prefix != f"{REMOTE}/prefix":
-            print(f"registry: {prefix}/{name} missing or bad; leaving it for wineboot", flush=True)
-            continue
-        good = [p for p in sorted(RUNS.glob(f"*.reg/{name}")) if p.read_bytes().startswith(header)]
-        if not good:
-            print(f"registry: {name} is bad and no good copy exists", flush=True)
-            continue
-        path = f"{prefix}/{name}"
-        try:
-            ftp.rename(path, f"{path}.bad-{time.strftime('%Y%m%d-%H%M%S')}")
-        except Exception:
-            pass  # missing
-        ftp.storbinary(f"STOR {path}.restore", BytesIO(good[-1].read_bytes()))
-        ftp.rename(f"{path}.restore", path)
-        print(f"registry: {name} was bad; restored {good[-1]}", flush=True)
-
-
-def run(args):
-    loader = Path(args.loader)
-    if not loader.is_file():
-        raise SystemExit(f"missing regular payload loader {loader}: rebuild Wine with "
-                         "ps5/build-wine.sh and pass --loader WINE_BUILD/loader/wine, "
-                         "or stage it with ps5/stage-wine.sh for the default")
-    loader_data = loader.read_bytes()
-    if not args.keep_session:
-        kill(args)  # a server left from an older build would serve this one
-    environment = dict(e.split("=", 1) for e in ENV + args.env)
-    if args.prefix is not None:
-        environment["WINEPREFIX"] = args.prefix
-    lines = [f"arg {LOADER}"] + [f"arg {a}" for a in [args.program] + args.args]
-    lines += [f"env {key}={value}" for key, value in environment.items()] + [f"cwd {args.cwd}"]
-    RUNS.mkdir(parents=True, exist_ok=True)
-    base = RUNS / time.strftime("%Y%m%d-%H%M%S")
-    ftp = connect()
-    registry_backup = base.with_suffix(".reg" if environment["WINEPREFIX"] == f"{REMOTE}/prefix"
-                                       else ".prefix-registry")
-    check_registry(ftp, registry_backup, environment["WINEPREFIX"])
-    mkdirs(ftp, environment["HOME"], set())
-    from io import BytesIO
-    ftp.storbinary(f"STOR {REMOTE}/boot.txt", BytesIO(("\n".join(lines) + "\n").encode()))
-    ftp.quit()
-
-    stop = threading.Event()
-    klog = threading.Thread(target=capture_klog, args=(base.with_suffix(".klog"), stop), daemon=True)
-    klog.start()
-    try:
-        with base.with_suffix(".out").open("wb") as log:
-            send_payload(loader_data, args.timeout, log, args.until)
-        time.sleep(args.klog_tail)  # crash reports reach klog after the loader's socket closes
-    finally:
-        stop.set()
-        klog.join(5)
-    print(f"run log: {base}.out, {base}.klog")
-
-
-# DXVK (ps5/build-dxvk.sh) as Proton installs it: its DLLs in the prefix's
-# system32 (x86_64) and syswow64 (i386), and native overrides in the prefix's
-# registry, so dev runs (boot.txt written here) and the title's launches
-# (PS5_WineLauncher writes its own boot.txt) both use them. Wine's prefix
-# updates replace only its own placeholder DLLs, not these.
-DXVK_DLLS = ["d3d8", "d3d9", "d3d10core", "d3d11", "dxgi"]
-DXVK_BUILDS = {"64": "system32", "32": "syswow64"}
-
-
-def dxvk(args):
-    from io import BytesIO
-    files = []
-    for bits, folder in DXVK_BUILDS.items():
-        for name in DXVK_DLLS:
-            local = Path(f"{args.builds}-{bits}") / "dlls" / f"{name}.dll"
-            if not local.exists():
-                raise SystemExit(f"missing {local}: run ps5/build-dxvk.sh")
-            files.append((local, f"{REMOTE}/prefix/drive_c/windows/{folder}/{name}.dll"))
-    ftp = connect()
-    for local, remote in files:
-        ftp.storbinary(f"STOR {remote}.new", BytesIO(local.read_bytes()))
-        try:
-            ftp.delete(remote)
-        except error_reply as reply:
-            if not str(reply).startswith("226"):  # the console's FTP server answers DELE with 226
-                raise
-        except error_perm:
-            pass  # not there yet
-        ftp.rename(f"{remote}.new", remote)
-        print(f"dxvk: {local} -> {remote}", flush=True)
-    reg = "REGEDIT4\n\n[HKEY_CURRENT_USER\\Software\\Wine\\DllOverrides]\n"
-    reg += "".join(f'"{name}"="native"\n' for name in DXVK_DLLS)
-    reg_path = f"{REMOTE}/share/wine/dxvk-overrides.reg"
-    ftp.storbinary(f"STOR {reg_path}", BytesIO(reg.encode()))
-    ftp.quit()
-    run(argparse.Namespace(program="C:\\windows\\regedit.exe", args=["/S", "Z:" + reg_path.replace("/", "\\")],
-                           env=[], prefix=None, timeout=args.timeout, until=None, klog_tail=5,
-                           keep_session=False, cwd=REMOTE, loader=STAGE / "lib/wine/x86_64-unix/wine"))
-
-
 def prefix_permissions(args):
     """Open a prefix tree to every console process, as Wine now creates it.
 
@@ -1193,28 +708,8 @@ def prefix_permissions(args):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    u = sub.add_parser("upload")
-    u.add_argument("--verify", action="store_true",
-                   help="hash on the console and replace differing or missing files (no FTP downloads)")
-    sub.add_parser("kill")
-    r = sub.add_parser("run")
-    r.add_argument("program")
-    r.add_argument("args", nargs="*")
-    r.add_argument("--env", action="append", default=[], help="extra NAME=VALUE")
-    r.add_argument("--prefix", help="console WINEPREFIX (overrides --env WINEPREFIX; default: current prefix)")
-    r.add_argument("--loader", default=str(STAGE / "lib/wine/x86_64-unix/wine"),
-                   help="local payload ELF (default: staged Wine loader; console install unchanged)")
-    r.add_argument("--timeout", type=float, default=120)
-    r.add_argument("--until", help="end the run when Wine's output matches this regex")
-    r.add_argument("--klog-tail", type=float, default=10, help="seconds of klog kept after the run ends")
-    r.add_argument("--keep-session", action="store_true", help="do not end the running session first")
-    r.add_argument("--cwd", default=REMOTE, help="console directory the program starts in")
     t = sub.add_parser("upload-title", help="upload ps5/title/build.sh's OUT_DIR beside wine/")
     t.add_argument("folder")
-    x = sub.add_parser("dxvk", help="install ps5/build-dxvk.sh's DLLs in the prefix with native overrides")
-    x.add_argument("--timeout", type=float, default=120)
-    x.add_argument("--builds", default=str(HERE / "build/dxvk"),
-                   help="the build trees' common prefix (ps5/build-dxvk.sh's DXVK_BUILD): PREFIX-32 and PREFIX-64")
     c = sub.add_parser("title", help=f"start, close or query {TITLE_ID} through ps5vkctl")
     c.add_argument("action", choices=["launch", "kill", "restart"])
     b = sub.add_parser("title-backup", help="make a fresh raw guarded title backup")
@@ -1222,18 +717,6 @@ def main():
     b.add_argument("--paths-from", required=True, help="prior before.json defining guarded paths")
     z = sub.add_parser("title-restore", help="restore a title-backup byte-exactly")
     z.add_argument("run", help="run name used by title-backup")
-    br = sub.add_parser("runtime-title-run",
-                        help="bounded PsmKit-Wine backup, prefix, deploy, launch and restore")
-    br.add_argument("run", help="unique run name")
-    br.add_argument("--paths-from", required=True, help="prior before.json defining guarded paths")
-    br.add_argument("--folder", default=str(HERE / "build/title-psmkit-wine-runtime"))
-    br.add_argument("--until", required=True, help="run-title completion regex")
-    br.add_argument("--echo", default="")
-    br.add_argument("--timeout", type=float, default=240)
-    br.add_argument("--exit-grace", type=float, default=5)
-    br.add_argument("--elf")
-    br.add_argument("--wine-build", default=str(HERE / "build/wine-ps5-build"),
-                    help="build tree supplying the prefix payload loader and matching system32/syswow64 WoW64 DLLs")
     tr = sub.add_parser("title-root-upload", help="byte-verified upload of the qualified separate B1 Wine tree")
     tr.add_argument("--folder", default=str(HERE / "build/title-psmkit-wine-b1"))
     tr.add_argument("--replace", action="store_true", help="deliberately replace an existing wine-title root only")
@@ -1253,10 +736,10 @@ def main():
     pp.add_argument("--folder", default=REMOTE + "/prefix")
     pp.add_argument("--log", required=True, help="local JSON record of every change")
     a = p.parse_args()
-    {"upload": upload, "run": run, "kill": kill, "upload-title": upload_title, "title": title,
+    {"upload-title": upload_title, "title": title,
      "title-backup": title_backup, "title-restore": title_restore,
-     "runtime-title-run": runtime_title_run, "title-root-upload": title_root_upload,
-     "b1-title-run": b1_title_run, "b1-title-install": b1_title_install, "dxvk": dxvk,
+     "title-root-upload": title_root_upload,
+     "b1-title-run": b1_title_run, "b1-title-install": b1_title_install,
      "prefix-permissions": prefix_permissions}[a.cmd](a)
 
 

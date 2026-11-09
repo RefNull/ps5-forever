@@ -130,51 +130,49 @@ def builtin_prefix_files(tree):
 
 
 def profile(name, overrides=None):
-    if name not in ('p1w', 'b1'):
+    if name != 'b1':
         raise ValueError(f'unknown title runtime profile: {name}')
-    b1 = name == 'b1'
-    root = '/app0/wine-title' if b1 else '/app0/wine'
-    fixture = '/app0/wine/tests/b1-trace' if b1 else root + '/psmkit-wine-disposable'
+    root = '/app0/wine-title'
+    fixture = '/app0/wine/tests/b1-trace'
     loader = root + '/lib/wine/x86_64-unix/wine'
     selected = {
         'name': name, 'root': root,
         'remote_root': '/data/homebrew/PPSA99030/' + root.removeprefix('/app0/'),
         'loader': loader, 'prefix': fixture + '/prefix', 'home': fixture + '/home',
-        'server': root + '/server-title' if b1 else fixture + '/server-title',
-        'debug': 'err+all,fixme+all,+seh,+loaddll' if b1 else '+seh',
-        'cwd': fixture + '/prefix/drive_c/Program Files (x86)/Battle.net' if b1 else None,
+        'server': root + '/server-title',
+        'debug': 'err+all,fixme+all,+seh,+loaddll',
+        'cwd': fixture + '/prefix/drive_c/Program Files (x86)/Battle.net',
         'argv': [loader, r'C:\windows\system32\start.exe', '/exec',
-                 r'C:\Program Files (x86)\Battle.net\Battle.net Launcher.exe']
-                if b1 else [loader, r'C:\psmkit-wine-parent.exe'],
+                 r'C:\Program Files (x86)\Battle.net\Battle.net Launcher.exe'],
         'dll_overrides': ('winemenubuilder.exe=d;mscoree=d;mshtml=d;winedbg.exe=d;'
-                          'msv1_0=d;kerberos=d;tabtip.exe=d') if b1 else None,
-        **({'headless': False, 'gpu': False,
-            'installer_url': 'https://downloader.battle.net//download/getInstallerForGame?os=win&gameProgram=BATTLENET_APP&version=Live',
-            # Direct versioned file, tried only when the Live redirect download fails.
-            'installer_fallback_url': 'https://downloader.battle.net/download/installer/win/1.0.66/Battle.net-Setup.exe',
-            'installer_dos': r'C:\Battle.net-Setup.exe',
-            'payload_programs': [],
-            'refused_programs': [],
-            'prefetch_hosts': [],
-            'dns_upstreams': [],
-            'browser_switches': {},
-            'payload_dll_overrides': PAYLOAD_DLL_OVERRIDES} if b1 else {}),
+                          'msv1_0=d;kerberos=d;tabtip.exe=d'),
+        'headless': False, 'gpu': False,
+        'installer_url': 'https://downloader.battle.net//download/getInstallerForGame?os=win&gameProgram=BATTLENET_APP&version=Live',
+        # Direct versioned file, tried only when the Live redirect download fails.
+        'installer_fallback_url': 'https://downloader.battle.net/download/installer/win/1.0.66/Battle.net-Setup.exe',
+        'installer_dos': r'C:\Battle.net-Setup.exe',
+        'payload_programs': [],
+        'refused_programs': [],
+        'prefetch_hosts': [],
+        'dns_upstreams': [],
+        'browser_switches': {},
+        'payload_dll_overrides': PAYLOAD_DLL_OVERRIDES,
         'module_paths': {
             'ntdll.so': root + '/lib/wine/x86_64-unix/ntdll.so',
             'win32u.so': root + '/lib/wine/x86_64-unix/win32u.so',
-            'wineserver.so': root + '/bin/wineserver.so' if b1 else fixture + '/bin/wineserver.so',
-            **({module + '.so': root + '/lib/wine/x86_64-unix/' + module + '.so'
-                for module in ('ws2_32', 'crypt32', 'opengl32', 'secur32', 'bcrypt', 'wineps5',
-                               'dwrite')} if b1 else {}),
+            'wineserver.so': root + '/bin/wineserver.so',
+            **{module + '.so': root + '/lib/wine/x86_64-unix/' + module + '.so'
+               for module in ('ws2_32', 'crypt32', 'opengl32', 'secur32', 'bcrypt', 'wineps5',
+                              'dwrite')},
             # schannel (secur32), bcrypt and crypt32 dlopen Wine's SONAME_LIBGNUTLS,
             # win32u and dwrite its SONAME_LIBFREETYPE; the B1 loader maps the
             # payload prefix of those names to this root.
-            **({'libgnutls.so': root + '/lib/libgnutls.so',
-                'libfreetype.so': root + '/lib/libfreetype.so'} if b1 else {}),
+            'libgnutls.so': root + '/lib/libgnutls.so',
+            'libfreetype.so': root + '/lib/libfreetype.so',
         },
     }
     if overrides is not None:
-        if name != 'b1' or not isinstance(overrides, dict):
+        if not isinstance(overrides, dict):
             raise ValueError('profile overrides are a B1 JSON object only')
         allowed = {'argv', 'cwd', 'prefix', 'home', 'dll_overrides', 'child_dll_overrides',
                    'debug', 'headless', 'payload_programs', 'refused_programs',
@@ -274,35 +272,34 @@ def profile(name, overrides=None):
                         '..' in PurePosixPath(value).parts):
                     raise ValueError(f'B1 {key} must stay inside the title /app0 tree or {USER_DATA_ROOT}')
                 selected[key] = value
-    if b1:
-        if selected.get('runtime_game'):
-            if not selected['gpu'] or (overrides and ('argv' in overrides or 'cwd' in overrides)):
-                raise ValueError('B1 runtime_game requires GPU and runtime-supplied argv/cwd')
-            selected['argv'] = [loader]
-            selected['cwd'] = None
-        if selected['gpu'] and not selected['headless']:
-            raise ValueError('B1 gpu requires headless to give RADV exclusive VideoOut ownership')
-        if (selected.get('environment', {}).keys() -
-                {'WINEPS5_MXCSR_TRACE', 'WINEPS5_WRITE_TRACE', 'WINEPS5_WRITE_STICKY',
-                 'WINEPS5_PROFILE'}) and not selected['gpu']:
-            raise ValueError('B1 graphics environment requires a gpu profile')
-        if overrides is not None and 'child_dll_overrides' in overrides and not selected['gpu']:
-            raise ValueError('B1 child_dll_overrides requires a gpu profile')
-        selected.setdefault('child_dll_overrides', selected['dll_overrides'])
-        if selected['gpu']:
-            # The game parent owns the console port; PsmKit children load the
-            # same driver but use its clocked silent fallback.
-            selected['module_paths']['wineps5audio.so'] = (
-                root + '/lib/wine/x86_64-unix/wineps5audio.so')
-            # D3D's Vulkan path: winevulkan's Unix side reaches RADV through win32u.
-            selected['module_paths']['winevulkan.so'] = root + '/lib/wine/x86_64-unix/winevulkan.so'
-            # Native XInput bridges, admitted only for GPU titles.
-            for version in (1, 2, 3, 4):
-                module = f'xinput1_{version}.so'
-                selected['module_paths'][module] = root + '/lib/wine/x86_64-unix/' + module
-        selected['launcher_unix'] = selected['prefix'] + '/drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe'
-        selected['installer_unix'] = selected['prefix'] + '/drive_c/Battle.net-Setup.exe'
-        selected['installer_cwd'] = selected['prefix'] + '/drive_c'
+    if selected.get('runtime_game'):
+        if not selected['gpu'] or (overrides and ('argv' in overrides or 'cwd' in overrides)):
+            raise ValueError('B1 runtime_game requires GPU and runtime-supplied argv/cwd')
+        selected['argv'] = [loader]
+        selected['cwd'] = None
+    if selected['gpu'] and not selected['headless']:
+        raise ValueError('B1 gpu requires headless to give RADV exclusive VideoOut ownership')
+    if (selected.get('environment', {}).keys() -
+            {'WINEPS5_MXCSR_TRACE', 'WINEPS5_WRITE_TRACE', 'WINEPS5_WRITE_STICKY',
+             'WINEPS5_PROFILE'}) and not selected['gpu']:
+        raise ValueError('B1 graphics environment requires a gpu profile')
+    if overrides is not None and 'child_dll_overrides' in overrides and not selected['gpu']:
+        raise ValueError('B1 child_dll_overrides requires a gpu profile')
+    selected.setdefault('child_dll_overrides', selected['dll_overrides'])
+    if selected['gpu']:
+        # The game parent owns the console port; PsmKit children load the
+        # same driver but use its clocked silent fallback.
+        selected['module_paths']['wineps5audio.so'] = (
+            root + '/lib/wine/x86_64-unix/wineps5audio.so')
+        # D3D's Vulkan path: winevulkan's Unix side reaches RADV through win32u.
+        selected['module_paths']['winevulkan.so'] = root + '/lib/wine/x86_64-unix/winevulkan.so'
+        # Native XInput bridges, admitted only for GPU titles.
+        for version in (1, 2, 3, 4):
+            module = f'xinput1_{version}.so'
+            selected['module_paths'][module] = root + '/lib/wine/x86_64-unix/' + module
+    selected['launcher_unix'] = selected['prefix'] + '/drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe'
+    selected['installer_unix'] = selected['prefix'] + '/drive_c/Battle.net-Setup.exe'
+    selected['installer_cwd'] = selected['prefix'] + '/drive_c'
     return selected
 
 
@@ -325,9 +322,8 @@ def runtime_tree_manifest(root, selected):
     if actual != admitted:
         raise ValueError(f'title runtime Unix modules differ: added={sorted(actual-admitted)} missing={sorted(admitted-actual)}')
     required = {'lib/wine/x86_64-unix/wine', 'share/wine/wine.inf', 'share/wine/nls/locale.nls',
-                'lib/wine/i386-windows/ntdll.dll', 'lib/wine/x86_64-windows/ntdll.dll'}
-    if selected['name'] == 'b1':
-        required.update((WRITEBROKER_RELATIVE, ADDON_WORKER_RELATIVE))
+                'lib/wine/i386-windows/ntdll.dll', 'lib/wine/x86_64-windows/ntdll.dll',
+                WRITEBROKER_RELATIVE, ADDON_WORKER_RELATIVE}
     if not required <= files.keys():
         raise ValueError(f'incomplete title runtime: {sorted(required-files.keys())}')
     return {'format': 1, 'profile': selected['name'], 'title_root': selected['root'],

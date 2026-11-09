@@ -19,7 +19,6 @@
 #include <unistd.h>
 #include <ps5platform/kernel.h>
 #include <wine/ps5_desktop.h>
-#ifdef PW_RUNTIME_B1
 #include <netinet/in.h>
 #include <strings.h>
 
@@ -28,8 +27,7 @@ int sceUserServiceInitialize(const void *);
 #if !PW_RUNTIME_HEADLESS
 void title_desktop_message(const char *);
 #endif
-#endif
-#if defined(PW_RUNTIME_B1) && !PW_RUNTIME_HEADLESS && !PW_RUNTIME_GPU
+#if !PW_RUNTIME_HEADLESS && !PW_RUNTIME_GPU
 void forever_title_menu_wait_lifetime(void);
 void forever_title_addons_yield(void);
 static uint64_t addonforge_nonce;
@@ -49,12 +47,10 @@ static pthread_t reaper;
 static struct pw_slot slots[PW_CHILDREN];
 static uint64_t generation;
 static int stopping, started;
-#ifdef PW_RUNTIME_B1
 static int quiescing, quiesce_error;
-#endif
 static int64_t shutdown_grace, shutdown_deadline;
 
-#if defined(PW_RUNTIME_B1) && !PW_RUNTIME_HEADLESS
+#if !PW_RUNTIME_HEADLESS
 
 #define PW_HUB_MAX_FRAME PS5_DESKTOP_MAX_MESSAGE
 #define PW_HUB_MAX_OUTPUT (1024u * 1024u)
@@ -981,9 +977,9 @@ static void pw_desktop_stop(void)
     io_log("b1 desktop stopped after child supervisor");
 }
 
-#endif /* PW_RUNTIME_B1 && !PW_RUNTIME_HEADLESS */
+#endif /* !PW_RUNTIME_HEADLESS */
 
-#if defined(PW_RUNTIME_B1) && PW_RUNTIME_HEADLESS
+#if PW_RUNTIME_HEADLESS
 int pw_desktop_connect(void)
 {
     errno = ENOSYS;
@@ -1013,7 +1009,6 @@ static unsigned int occupied_slots(void)
     for (unsigned int i = 0; i < PW_CHILDREN; ++i) count += !!slots[i].occupied;
     return count;
 }
-#ifdef PW_RUNTIME_B1
 static pthread_cond_t children_changed = PTHREAD_COND_INITIALIZER;
 static void kill_occupied_slots(void);
 void pw_supervisor_wait_children(void)
@@ -1047,9 +1042,7 @@ void pw_supervisor_wait_children(void)
     forever_title_menu_wait_lifetime();
 #endif
 }
-#endif
 
-#ifdef PW_RUNTIME_B1
 static pthread_mutex_t payload_lock = PTHREAD_MUTEX_INITIALIZER;
 struct payload_drain { pthread_mutex_t lock; int fd; };
 static const char payload_loader[] = "/data/homebrew/PPSA99030/wine/lib/wine/x86_64-unix/wine";
@@ -1294,9 +1287,7 @@ done:
     free(command);
     return error;
 }
-#endif
 
-#ifdef PW_RUNTIME_B1
 /* A child cannot admit PsmKit processes, use the parent's native network
  * modules, connect to the desktop hub, or enter the shared-memory namespace.
  * It sends typed requests over a dedicated channel for the parent to perform. */
@@ -1480,7 +1471,6 @@ static void *serve_child_spawns(void *arg)
     free(request);
     return NULL;
 }
-#endif
 static int kill_slot(struct pw_slot *slot)
 {
     slot->kill_requested = 1;
@@ -1518,7 +1508,6 @@ static void kill_slots_parallel(struct pw_kill_request *requests, unsigned int c
                (unsigned int)requests[i].result, (unsigned long long)requests[i].slot->generation, count);
     }
 }
-#ifdef PW_RUNTIME_B1
 /* Caller holds lock. */
 static void kill_occupied_slots(void)
 {
@@ -1565,7 +1554,6 @@ int pw_supervisor_quiesce_children(void)
     pthread_mutex_unlock(&lock);
     return result;
 }
-#endif
 /* The title's budget allows 256 open files (FD_FILE) for the whole title;
  * the in-process wineserver holds one for every file any Wine process has
  * open. Count this process's descriptors by kind (public fstat only). */
@@ -1618,9 +1606,7 @@ static void reap_slot(unsigned int i)
            i, (unsigned long long)generation, slots[i].unix_pid, slots[i].windows_pid, files, sockets, other);
     log_file_breakdown("at-reap");
     pw_slot_release(&slots[i], generation, nonce);
-    #ifdef PW_RUNTIME_B1
     pthread_cond_broadcast(&children_changed);
-    #endif
 }
 static void *reap_children(void *unused)
 {
@@ -1662,7 +1648,6 @@ static void *reap_children(void *unused)
                     kills[kill_count++] = (struct pw_kill_request){.slot = &slots[i]};
                     break;
                 case PW_SHUTDOWN_ABANDON:
-#ifdef PW_RUNTIME_B1
                     if (quiescing)
                     {
                         if (!quiesce_error)
@@ -1679,13 +1664,6 @@ static void *reap_children(void *unused)
                         pw_slot_release(&slots[i], generation, slots[i].nonce);
                         --live;
                     }
-#else
-                    io_log("p1c supervisor abandoned slot=%u generation=%llx pid=%d failed=1",
-                           i, (unsigned long long)generation, slots[i].unix_pid);
-                    pw_slot_poison(&slots[i]);
-                    pw_slot_release(&slots[i], generation, slots[i].nonce);
-                    --live;
-#endif
                     break;
                 case PW_SHUTDOWN_WAIT:
                     break;
@@ -1693,11 +1671,7 @@ static void *reap_children(void *unused)
             }
             if (kill_count) kill_slots_parallel(kills, kill_count);
         }
-#ifdef PW_RUNTIME_B1
         int done = stopping && (!live || quiesce_error);
-#else
-        int done = stopping && !live;
-#endif
         pthread_mutex_unlock(&lock);
         if (done) return NULL;
         struct timespec pause = {.tv_nsec = 10000000};
@@ -1709,12 +1683,12 @@ int pw_supervisor_init(void)
     int error;
 
     generation = random_id();
-#if defined(PW_RUNTIME_B1) && !PW_RUNTIME_HEADLESS
+#if !PW_RUNTIME_HEADLESS
     if ((error = pw_desktop_start())) return error;
 #endif
     if ((error = pthread_create(&reaper, NULL, reap_children, NULL)))
     {
-#if defined(PW_RUNTIME_B1) && !PW_RUNTIME_HEADLESS
+#if !PW_RUNTIME_HEADLESS
         pw_desktop_stop();
 #endif
         return error;
@@ -1745,7 +1719,7 @@ static const char *spawn_command(const struct wine_ps5_title_spawn *spawn, char 
     return pw_redact_spawn_argv(spawn->argv, text, size);
 }
 
-#if defined(PW_RUNTIME_B1) && !PW_RUNTIME_HEADLESS && !PW_RUNTIME_GPU
+#if !PW_RUNTIME_HEADLESS && !PW_RUNTIME_GPU
 static int is_addonforge_core(const struct wine_ps5_title_spawn *spawn)
 {
     return spawn->argv && spawn->argv[0] && spawn->argv[1] &&
@@ -1770,7 +1744,7 @@ static int is_battlenet_renderer(const struct wine_ps5_title_spawn *spawn)
 static int reserve_spawn_slot(const struct wine_ps5_title_spawn *spawn, uint64_t nonce)
 {
     int chromium = is_chromium_subprocess(spawn), helper = 0, index;
-#if defined(PW_RUNTIME_B1) && !PW_RUNTIME_HEADLESS && !PW_RUNTIME_GPU
+#if !PW_RUNTIME_HEADLESS && !PW_RUNTIME_GPU
     helper = is_addonforge_core(spawn);
     if (!stopping && is_battlenet_renderer(spawn) && occupied_slots() >= PW_CHILDREN - 1)
     {
@@ -1816,7 +1790,7 @@ static int reserve_spawn_slot(const struct wine_ps5_title_spawn *spawn, uint64_t
                occupied_slots(), spawn->windows_pid, spawn_command(spawn, command, sizeof(command)));
         errno = error;
     }
-#if defined(PW_RUNTIME_B1) && !PW_RUNTIME_HEADLESS && !PW_RUNTIME_GPU
+#if !PW_RUNTIME_HEADLESS && !PW_RUNTIME_GPU
     if (index >= 0 && helper) addonforge_nonce = nonce;
 #endif
     return index;
@@ -1866,7 +1840,6 @@ int pw_supervisor_spawn(const struct wine_ps5_title_spawn *spawn)
     error = pw_slot_hello(&slots[index], &hello);
     if (error) goto failed;
     if (slots[index].unix_pid == (int)getpid()) { error = EPROTO; goto failed; }
-#ifdef PW_RUNTIME_B1
     {
         int channel[2];
         pthread_t thread;
@@ -1888,7 +1861,6 @@ int pw_supervisor_spawn(const struct wine_ps5_title_spawn *spawn)
         }
         pthread_detach(thread);
     }
-#endif
     size_t flexible = 0;
     int32_t flexible_status = sceKernelAvailableFlexibleMemorySize(&flexible);
     int flexible_error = errno;
@@ -1901,7 +1873,7 @@ int pw_supervisor_spawn(const struct wine_ps5_title_spawn *spawn)
         io_log("p1c supervisor admit slot=%d occupied=%u flexible_free=unavailable status=%#x errno=%d",
                index, occupied_slots(), (unsigned int)flexible_status, flexible_error);
     log_file_breakdown("at-admit");
-#if defined(PW_RUNTIME_B1) && !PW_RUNTIME_HEADLESS && !PW_RUNTIME_GPU
+#if !PW_RUNTIME_HEADLESS && !PW_RUNTIME_GPU
     if (forever_installer_setup_program(spawn->argv))
     {
         io_log("forever: installer continue supervisor process unix_pid=%d windows_pid=%u",
@@ -2005,7 +1977,7 @@ void pw_supervisor_shutdown(void)
     io_log("p1c supervisor shutdown grace_ms=0 kill_wait_ms=2000");
     pthread_mutex_unlock(&lock);
     pthread_join(reaper, NULL);
-#if defined(PW_RUNTIME_B1) && !PW_RUNTIME_HEADLESS
+#if !PW_RUNTIME_HEADLESS
     pw_desktop_stop();
 #endif
     started = 0;

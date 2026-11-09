@@ -35,7 +35,6 @@ with tempfile.TemporaryDirectory() as directory:
     assert list(owned) == sorted(owned)
 
 b1 = profile('b1')
-p1w = profile('p1w')
 product = json.loads(Path(__file__).with_name('b1-product.json').read_text())
 assert product['debug'] == 'err+all,err-seh'
 assert product['argv'] == [r'C:\Forever\Addons\forever-maintenance.exe']
@@ -60,7 +59,6 @@ assert set(b1['module_paths']) == {
 }
 assert b1['headless'] is False
 assert b1['gpu'] is False
-assert 'gpu' not in p1w
 assert profile('b1', {'gpu': False})['gpu'] is False
 assert profile('b1', {'gpu': True, 'headless': True})['gpu'] is True
 gpu = profile('b1', {'headless': True, 'gpu': True})
@@ -210,11 +208,8 @@ except ValueError:
     pass
 else:
     raise AssertionError('product profile accepted a GPU environment')
-assert 'headless' not in p1w
-assert 'payload_programs' not in p1w and 'payload_dll_overrides' not in p1w
 assert b1['payload_programs'] == []
 assert b1['refused_programs'] == []
-assert 'refused_programs' not in p1w
 assert profile('b1', {'refused_programs': ['BlizzardError.exe']})['refused_programs'] == [
     'BlizzardError.exe']
 assert b1['installer_dos'] == r'C:\Battle.net-Setup.exe'
@@ -222,7 +217,6 @@ assert b1['installer_url'] == 'https://downloader.battle.net//download/getInstal
 # A direct versioned download, tried only after the Live redirect fails.
 assert b1['installer_fallback_url'] == 'https://downloader.battle.net/download/installer/win/1.0.66/Battle.net-Setup.exe'
 for key in ('installer_url', 'installer_fallback_url', 'installer_dos', 'launcher_unix', 'installer_unix', 'installer_cwd'):
-    assert key not in p1w
     try:
         profile('b1', {key: b1[key]})
     except ValueError:
@@ -239,31 +233,28 @@ assert ('"WINEDLLOVERRIDES=' + b1['payload_dll_overrides'] + '"') in (
     Path(__file__).resolve().parents[2] / 'deploy-wine.py').read_text()
 assert profile('b1', {'payload_programs': [r'D:\Tools\Switcher.exe']})['payload_programs'] == [r'D:\Tools\Switcher.exe']
 for headless in (False, True):
-    roles = native_role_imports('b1', headless=headless)
+    roles = native_role_imports(headless=headless)
     assert all(roles['parent'][name] == 'libkernel.prx'
                for name in ('connect', 'setsockopt', 'shutdown'))
     assert roles['parent']['sceSystemServiceLaunchWebBrowser'] == 'libSceSystemService.prx'
     assert roles['parent']['sceUserServiceInitialize'] == 'libSceUserService.prx'
     assert roles['child'] == {}
-assert all(name not in native_role_imports('p1w')['parent']
-           for name in ('connect', 'setsockopt', 'shutdown'))
-assert 'sceSystemServiceLaunchWebBrowser' not in native_role_imports('p1w')['parent']
-gpu_roles = native_role_imports('b1', headless=True, gpu=True)
-assert gpu_roles['child'] == native_role_imports('b1', headless=True)['child']
+gpu_roles = native_role_imports(headless=True, gpu=True)
+assert gpu_roles['child'] == native_role_imports(headless=True)['child']
 assert gpu_roles['parent']['sceAgcInit'] == 'libSceAgc.prx'
 assert gpu_roles['parent']['sceAgcDriverSubmitDcb'] == 'libSceAgcDriver.prx'
 assert gpu_roles['parent']['sceVideoOutOpen'] == 'libSceVideoOut.prx'
 for symbol in ('sceAudioOutInit', 'sceAudioOutOpen', 'sceAudioOutOutput', 'sceAudioOutClose'):
     assert gpu_roles['parent'][symbol] == 'libSceAudioOut.prx'
     assert symbol not in gpu_roles['child']
-    assert symbol not in native_role_imports('b1', headless=False)['parent']
-    assert symbol not in native_role_imports('b1', headless=True)['parent']
+    assert symbol not in native_role_imports(headless=False)['parent']
+    assert symbol not in native_role_imports(headless=True)['parent']
 for symbol in ('sceVideoOutCursorDisable', 'sceVideoOutCursorEnable',
                'sceVideoOutCursorSetHotSpot', 'sceVideoOutCursorSetPosition'):
     assert gpu_roles['parent'][symbol] == 'libSceVideoOut.prx'
     assert symbol not in gpu_roles['child']
-    assert symbol not in native_role_imports('b1', headless=False)['parent']
-    assert symbol not in native_role_imports('b1', headless=True)['parent']
+    assert symbol not in native_role_imports(headless=False)['parent']
+    assert symbol not in native_role_imports(headless=True)['parent']
 for symbol, provider in (
         ('scePadRead', 'libScePad.prx'),
         ('sceKeyboardClose', 'libSceKeyboard.prx'),
@@ -274,71 +265,65 @@ for symbol, provider in (
         ('sceUserServiceGetLoginUserIdList', 'libSceUserService.prx'),
         ('sceImeOpen', 'libSceIme.prx')):
     assert gpu_roles['parent'][symbol] == provider
-    assert native_role_imports('b1', headless=False)['parent'][symbol] == provider
-    assert symbol not in native_role_imports('b1', headless=True)['parent']
+    assert native_role_imports(headless=False)['parent'][symbol] == provider
+    assert symbol not in native_role_imports(headless=True)['parent']
     assert symbol not in gpu_roles['child']
 assert gpu_roles['parent']['scePadSetVibration'] == 'libScePad.prx'
 assert 'scePadSetVibration' not in gpu_roles['child']
-for roles in (native_role_imports('b1'), native_role_imports('b1', headless=True),
-              native_role_imports('p1w')):
+for roles in (native_role_imports(), native_role_imports(headless=True)):
     assert 'scePadSetVibration' not in roles['parent']
 assert not any(name.startswith('xinput') for name in b1['module_paths'])
-assert not any(name.startswith('xinput') for name in p1w['module_paths'])
 assert 'sceHttp2Init' not in gpu_roles['parent']
-for roles in (native_role_imports('b1'), native_role_imports('b1', headless=True),
-              native_role_imports('p1w')):
+for roles in (native_role_imports(), native_role_imports(headless=True)):
     assert 'sceAgcInit' not in roles['parent']
     assert 'sceAgcDriverSubmitDcb' not in roles['parent']
 voice_symbols = {'sceAudioInInit', 'sceAudioInOpen', 'sceAudioInInput', 'sceAudioInClose'}
 assert {name for name in gpu_roles['parent'] if name.startswith('sceAudioIn')} == voice_symbols
 assert all(gpu_roles['parent'][name] == 'libSceAudioIn.prx' for name in voice_symbols)
 assert gpu_roles['parent']['scePthreadSetprio'] == 'libkernel.prx'
-for roles in (native_role_imports('b1'), native_role_imports('b1', headless=True),
-              native_role_imports('p1w')):
+for roles in (native_role_imports(), native_role_imports(headless=True)):
     assert not voice_symbols.intersection(roles['parent'])
     assert not voice_symbols.intersection(roles['child'])
 assert not voice_symbols.intersection(gpu_roles['child'])
 for symbol in ('sceHttp2AbortRequest', 'sceHttp2AddRequestHeader', 'sceHttp2GetAllResponseHeaders',
                'sceHttp2SetAutoRedirect', 'sceHttp2SetResolveTimeOut',
                'sceHttp2SetConnectTimeOut', 'sceHttp2SetRecvTimeOut'):
-    assert native_role_imports('b1')['parent'][symbol] == 'libSceHttp2.prx'
+    assert native_role_imports()['parent'][symbol] == 'libSceHttp2.prx'
     assert symbol not in gpu_roles['parent'] and symbol not in gpu_roles['child']
-assert len(p1w['module_paths']) == 3
-reviewed = load_policy(Path(__file__).with_name('runtime-import-policy-b1.json'), profile_name='b1')
+reviewed = load_policy(Path(__file__).with_name('runtime-import-policy-b1.json'))
 for symbol in ('NtUserGetForegroundWindow', 'NtUserGetGUIThreadInfo', 'NtUserPostMessage', 'NtUserQueryWindow'):
     assert any(row == {'module': 'wineps5.so', 'binding': 'strong', 'owner': 'title_win32u',
                        'symbol': symbol, 'target': symbol} for row in reviewed)
 gpu_surfaces = {name: {'strong': set(), 'weak': set()} for name in gpu['module_paths']}
 for row in reviewed:
     gpu_surfaces[row['module']][row['binding']].add(row['symbol'])
-assert any('winevulkan.so' in row['modules'] for row in make_records(gpu_surfaces, reviewed, profile_name='b1', gpu=True))
+assert any('winevulkan.so' in row['modules'] for row in make_records(gpu_surfaces, reviewed, gpu=True))
 assert any('wineps5audio.so' in row['modules']
-           for row in make_records(gpu_surfaces, reviewed, profile_name='b1', gpu=True))
+           for row in make_records(gpu_surfaces, reviewed, gpu=True))
 assert any(row['name'] == 'ps5_title_profile_set_blocking' and row['owner'] == 'title_ntdll'
            and set(row['modules']) == {'wineps5audio.so', 'winevulkan.so'}
-           for row in make_records(gpu_surfaces, reviewed, profile_name='b1', gpu=True))
+           for row in make_records(gpu_surfaces, reviewed, gpu=True))
 assert gpu_roles['parent']['pthread_getcpuclockid'] == 'libkernel.prx'
 try:
-    make_records(gpu_surfaces, reviewed, profile_name='b1')
+    make_records(gpu_surfaces, reviewed)
 except ValueError:
     pass
 else:
     raise AssertionError('a launcher build accepted the GPU module')
 surfaces = {name: gpu_surfaces[name] for name in b1['module_paths']}
-authorized = make_records(surfaces, reviewed, profile_name='b1')
+authorized = make_records(surfaces, reviewed)
 assert not any('winevulkan.so' in row['modules'] for row in authorized)
 assert not any('wineps5audio.so' in row['modules'] for row in authorized)
 assert any(row['owner'] == 'title_win32u' for row in authorized)
 assert any(row['name'] == 'getaddrinfo' and row['target'] == 'pw_b1_getaddrinfo' for row in authorized)
-# B1 klog writes leave on the native writer thread (title-log.c); p1w is unchanged.
-assert candidate_ownership('sceKernelDebugOutText', profile_name='b1') == ('platform', 'pw_title_klog_text')
-assert candidate_ownership('sceKernelDebugOutText') == ('UNREVIEWED_NOT_AUTHORIZED', 'sceKernelDebugOutText')
+# B1 klog writes leave on the native writer thread (title-log.c).
+assert candidate_ownership('sceKernelDebugOutText') == ('platform', 'pw_title_klog_text')
 assert {row['module'] for row in reviewed if row['symbol'] == 'sceKernelDebugOutText'} == {
     'ntdll.so', 'win32u.so', 'wineps5.so', 'wineserver.so'}
 assert all(row['target'] == 'pw_title_klog_text' for row in authorized if row['name'] == 'sceKernelDebugOutText')
 surfaces['ws2_32.so']['strong'].add('future_unreviewed_network_function')
 try:
-    make_records(surfaces, reviewed, profile_name='b1')
+    make_records(surfaces, reviewed)
 except ValueError:
     pass
 else:
@@ -353,8 +338,6 @@ assert installed_paths(b1['loader']) == {
 assert b1['prefix'] == '/app0/wine/tests/b1-trace/prefix'
 assert b1['home'] == '/app0/wine/tests/b1-trace/home'
 assert b1['server'] == '/app0/wine-title/server-title'
-assert p1w['loader'] == '/app0/wine/lib/wine/x86_64-unix/wine'
-assert p1w['module_paths']['wineserver.so'] == '/app0/wine/psmkit-wine-disposable/bin/wineserver.so'
 custom = profile('b1', {'argv': ['start.exe', '/exec', 'custom.exe', '--disable-gpu'],
                         'cwd': '/app0/custom', 'prefix': '/app0/wine/custom-prefix',
                         'home': '/app0/wine/custom-home', 'dll_overrides': 'wineps5.drv=d',
@@ -413,9 +396,9 @@ with tempfile.TemporaryDirectory(prefix='pw-b1-profile-') as temporary:
     assert manifest['files'][ADDON_WORKER_RELATIVE] == file_identity(root / ADDON_WORKER_RELATIVE)
     assert (root / ADDON_WORKER_RELATIVE).stat().st_size <= ADDON_WORKER_MAX_BYTES
     modules = module_manifest({name: root / relative.removeprefix('/app0/wine-title/')
-                              for name, relative in b1['module_paths'].items()}, profile_name='b1')
+                              for name, relative in b1['module_paths'].items()})
     assert all(item['path'].startswith('/app0/wine-title/') for item in modules)
-    assert '/app0/wine-title/bin/wineserver.so' in render_include([], modules, profile_name='b1')
+    assert '/app0/wine-title/bin/wineserver.so' in render_include([], modules)
     folder = Path(temporary) / 'published'
     for relative in ('eboot.bin', 'sce_sys/param.json', 'sce_module/libc.prx',
                      'assets/icon0.png', 'psmkit-wine-runtime-child.bin',

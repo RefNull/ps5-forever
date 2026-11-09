@@ -903,7 +903,7 @@ docker run --rm --pull=never --user "$(id -u):$(id -g)" \
   --mount "type=bind,source=$SOURCE_ROOT,target=/sources" \
   --workdir /sources/ps5-proton/ps5-wow \
   forever-launcher-linux:ubuntu-24.04 \
-  bash -c 'mkdir -p "$HOME"; make -s -C ps5/probes/psmkit-wine test MINGW_CC=/opt/llvm-mingw/bin/x86_64-w64-mingw32-clang MINGW32_CC=/opt/llvm-mingw/bin/i686-w64-mingw32-clang'
+  bash -c 'mkdir -p "$HOME"; make -s -C ps5/probes/psmkit-wine test MINGW_CC=/opt/llvm-mingw/bin/x86_64-w64-mingw32-clang'
 ```
 
 The `test-file-security` host gate compiles Wine's real `mode_to_sd`,
