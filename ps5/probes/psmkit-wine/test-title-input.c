@@ -1,7 +1,11 @@
-/* Exercise the real PS5 keyboard decoder and the bounded multi-contract probe. */
+/* Exercise the real PS5 keyboard decoder, the open contract (zeroed
+ * parameters first, NULL fallback) and the probe's log. */
 #include <assert.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "../../title/input.c"
 
@@ -15,6 +19,10 @@ struct fake_keyboard
 static struct fake_keyboard fake_keyboards[64];
 static struct input_event events[64];
 static unsigned event_count, keyboard_opens, keyboard_closes, privilege_calls;
+/* A firmware that refuses one parameter contract. The code is a test value. */
+#define FAKE_REFUSED (-1000)
+static int refuse_null, refuse_zero;
+static unsigned keyboard_refusals;
 
 static struct fake_keyboard *fake_from_handle(int handle)
 {
@@ -75,11 +83,17 @@ int sceKeyboardInit(void) { return 0; }
 int sceKeyboardOpen(int user, int type, int index, const void *param)
 {
     struct keyboard_open_param zero = {{0}};
-    unsigned at = keyboard_opens++;
+    unsigned at;
 
     assert(!type && index >= 0 && index < KEYBOARD_DEVICE_INDEXES);
-    assert(at < sizeof(fake_keyboards) / sizeof(fake_keyboards[0]));
     if (param) assert(!memcmp(param, &zero, sizeof(zero)));
+    if (param ? refuse_zero : refuse_null)
+    {
+        keyboard_refusals++;
+        return FAKE_REFUSED;
+    }
+    at = keyboard_opens++;
+    assert(at < sizeof(fake_keyboards) / sizeof(fake_keyboards[0]));
     fake_keyboards[at] = (struct fake_keyboard){
         .used = 1, .user = user, .index = index, .param_null = param == NULL,
     };
@@ -131,6 +145,26 @@ int sceMouseRead(int handle, void *records, int count)
     return -1;
 }
 
+static char log_lines[64][512];
+static unsigned log_count;
+
+static void capture_log(const char *format, ...)
+{
+    va_list args;
+    assert(log_count < sizeof(log_lines) / sizeof(log_lines[0]));
+    va_start(args, format);
+    vsnprintf(log_lines[log_count++], sizeof(log_lines[0]), format, args);
+    va_end(args);
+}
+
+static unsigned logged(const char *needle, const char *also)
+{
+    unsigned found = 0;
+    for (unsigned i = 0; i < log_count; i++)
+        if (strstr(log_lines[i], needle) && (!also || strstr(log_lines[i], also))) found++;
+    return found;
+}
+
 static void capture(const struct input_event *event, void *context)
 {
     (void)context;
@@ -144,21 +178,6 @@ static void expect(unsigned at, unsigned usage, int down)
     assert(events[at].kind == INPUT_KEY);
     assert(events[at].code == usage);
     assert(events[at].down == down);
-}
-
-static void check_open_results(unsigned param_null)
-{
-    unsigned found = 0;
-    for (unsigned slot = 0; slot < input_keyboard_diagnostic_count(); slot++)
-    {
-        struct input_keyboard_open_diagnostic opened;
-        if (!input_take_keyboard_open_diagnostic(slot, &opened)) continue;
-        assert(opened.param_null == param_null);
-        assert(opened.user == 77 || opened.user == 0xff || opened.user == 0xfe || opened.user == 88);
-        assert(opened.device_index < 2 && opened.open_rc == opened.handle && opened.handle >= 100);
-        found++;
-    }
-    assert(found == 8); /* four unique users, two indexes, one active parameter mode */
 }
 
 static void check_raw_source(unsigned slot, unsigned source)
@@ -179,20 +198,68 @@ static void check_raw_source(unsigned slot, unsigned source)
 }
 
 
-int main(void)
+/* A firmware that refuses zeroed parameters (as 5.50 might): every zeroed
+ * open fails, NULL opens once each, keys decode, and the runtime's later
+ * zero-phase request keeps the working NULL handles. */
+static void test_null_fallback(void)
 {
     int status = -1;
     unsigned slot;
     struct fake_keyboard *keyboard;
 
+    refuse_zero = 1;
+    assert(input_open(&status) == 77 && !status);
+    assert(keyboard_refusals == 8 && keyboard_opens == 8); /* every zeroed, then NULL */
+    assert(strstr(input_describe(), "param=null"));
+    input_keyboard_log(capture_log, 0);
+    assert(logged("diagnostic=open ", "param=zero rc=0xfffffc18 handle=0xffffffff") == 8);
+    assert(logged("diagnostic=open ", "param=null rc=0x6") == 8);
+    slot = find_slot(77, 0, 1);
+    keyboard = fake_from_handle(keyboards[slot].handle);
+    keyboard->state.connected = 1;
+    keyboard->state.length = 1;
+    keyboard->state.keys[0] = 0x04;
+    input_poll(capture, NULL);
+    assert(event_count == 1);
+    expect(0, 0x04, 1);
+    input_keyboard_request_zero_param_phase();
+    input_poll(capture, NULL);
+    assert(!keyboard_closes && keyboard_opens == 8 && keyboards[slot].handle >= 0);
+}
+
+int main(void)
+{
+    int status = -1;
+    unsigned slot;
+    struct fake_keyboard *keyboard;
+    pid_t child = fork();
+
+    assert(child >= 0);
+    if (!child)
+    {
+        test_null_fallback();
+        _exit(0);
+    }
+    assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
+
+    /* A firmware that refuses NULL parameters, the contract the launcher
+     * used: the keyboard must still open, with zeroed parameters. */
+    refuse_null = 1;
+    status = -1;
     assert(input_open(&status) == 77 && !status);
     assert(input_keyboard_diagnostic_count() == 16); /* initial/system/everyone/login x 2 x 2 */
-    assert(keyboard_opens == 8); /* NULL phase only */
+    assert(keyboard_opens == 8 && !keyboard_refusals); /* zeroed only: NULL never tried */
     assert(strstr(input_describe(), "keyboard_users=4") && strstr(input_describe(), "slots=16"));
+    assert(strstr(input_describe(), "param=zero"));
     assert(strstr(input_describe(), "focus=skipped_unknown_pointer_abi"));
-    check_open_results(1);
+    /* The launcher's log: every open once, nothing else yet. */
+    input_keyboard_log(capture_log, 0);
+    assert(log_count == 8 && logged("title keyboard diagnostic=open ", "param=zero rc=0x6") == 8);
+    input_keyboard_log(capture_log, 0);
+    assert(log_count == 8);
+    log_count = 0;
 
-    slot = find_slot(77, 1, 1);
+    slot = find_slot(77, 1, 0);
     keyboard = fake_from_handle(keyboards[slot].handle);
     keyboard->state.connected = 1;
     keyboard->state.length = 5;
@@ -241,7 +308,7 @@ int main(void)
     {
         struct input_keyboard_diagnostics diagnostic;
         assert(input_take_keyboard_diagnostics(slot, &diagnostic));
-        assert(diagnostic.user == 77 && diagnostic.device_index == 1 && diagnostic.param_null);
+        assert(diagnostic.user == 77 && diagnostic.device_index == 1 && !diagnostic.param_null);
         assert(diagnostic.reads == 5 && diagnostic.queue_reads == 5 && diagnostic.queue_records == 5);
         assert(diagnostic.connected == 5 && diagnostic.queue_connected == 5);
         assert(diagnostic.usage_nonzero == 13 && diagnostic.queue_usage_nonzero == 13);
@@ -269,18 +336,16 @@ int main(void)
     assert(input_keyboard_set_process_privilege() == 123);
     assert(input_keyboard_set_process_privilege() == 123 && privilege_calls == 1);
 
+    /* The contract was chosen at open: the runtime's request changes nothing. */
     input_keyboard_request_zero_param_phase();
     input_poll(capture, NULL);
-    assert(keyboard_closes == 8 && keyboard_opens == 16);
-    check_open_results(0);
+    assert(!keyboard_closes && keyboard_opens == 8);
     for (unsigned i = 0; i < keyboard_count; i++)
     {
         if (keyboards[i].param_null) assert(keyboards[i].handle < 0);
         else assert(keyboards[i].handle >= 0);
     }
 
-    slot = find_slot(77, 1, 0);
-    keyboard = fake_from_handle(keyboards[slot].handle);
     keyboard->state.connected = 1;
     keyboard->state.length = 1;
     keyboard->state.keys[0] = 0x28;
@@ -289,6 +354,39 @@ int main(void)
     assert(event_count == 1);
     expect(0, 0x28, 1);
 
-    puts("title keyboard users/params/ReadState/Read/privilege diagnostic: PASS");
+    /* Counter windows: only slots with reads log; distinct counts raw states
+     * (capped at four). Window 6's zero request is skipped: the contract was
+     * chosen at open. Windows stop after 30. */
+    log_count = 0;
+    input_keyboard_log(capture_log, 0); /* opens and activity were taken above */
+    assert(log_count == 0);
+    log_count = 0;
+    input_keyboard_log(capture_log, 1);
+    assert(logged("diagnostic=state slot=", "param=zero") == 8);
+    assert(logged("diagnostic=read slot=", "param=zero") == 8 && !logged("param=null", NULL));
+    {
+        char expected[64];
+        snprintf(expected, sizeof(expected), "diagnostic=state slot=%u ", slot);
+        assert(logged(expected, "connected=1 ") && logged(expected, "distinct=4"));
+        assert(logged(expected, "privilege=post"));
+    }
+    assert(logged("diagnostic=privilege", "rc=0x7b") == 1 && privilege_calls == 1);
+    for (unsigned window = 2; window <= 6; window++)
+    {
+        log_count = 0;
+        input_poll(capture, NULL);
+        input_keyboard_log(capture_log, 1);
+        assert(!logged("param=null", NULL));
+    }
+    assert(logged("param_switch", "skipped=chosen_at_open") == 1 && !keyboard_closes);
+    for (unsigned window = 7; window <= 31; window++)
+    {
+        log_count = 0;
+        input_poll(capture, NULL);
+        input_keyboard_log(capture_log, 1);
+    }
+    assert(log_count == 0);
+
+    puts("title keyboard open contract/ReadState/Read/privilege/log: PASS");
     return 0;
 }

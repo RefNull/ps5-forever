@@ -108,8 +108,17 @@ int input_take_keyboard_raw_diagnostic(unsigned slot, unsigned source, unsigned 
 int input_take_keyboard_activity(unsigned *slot, unsigned *length);
 /* Process-wide diagnostic, called after the first counter window. */
 int input_keyboard_set_process_privilege(void);
-/* One-shot transition from NULL to zeroed keyboard open parameters. */
+/* One-shot transition from NULL to zeroed keyboard open parameters. Since
+ * input_open chooses the contract (zeroed first, NULL fallback), a no-op. */
 void input_keyboard_request_zero_param_phase(void);
+/* The keyboard probe's log, for a desktop without runtime-input.c: open
+ * results and the first active state as they happen, and with window_due
+ * one 10 s counter window per opened slot (no usages, modifiers or bytes;
+ * distinct= counts differing raw states, so a changed layout still shows).
+ * The first window is followed by the privilege call, the sixth by the
+ * zero-parameter request. Windows stop after 30. */
+typedef void input_log_fn(const char *format, ...) __attribute__((format(printf, 1, 2)));
+void input_keyboard_log(input_log_fn *emit, int window_due);
 /* Calls handler for every state transition or queue record since the last
  * call. A pad event comes once per poll with the latest state. */
 void input_poll(void (*handler)(const struct input_event *event, void *context), void *context);

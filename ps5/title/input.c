@@ -1,6 +1,9 @@
 /* The title's input devices (input.h). Pad/mouse keep their production path.
- * Keyboard diagnostics deliberately probe user/index/open-parameter variants
- * and both native read APIs without guessing a new record layout. */
+ * Keyboard diagnostics deliberately probe user/index variants and both native
+ * read APIs without guessing a new record layout. The keyboard opens with
+ * zeroed parameters, the contract prospero-win opens with on current
+ * firmware; NULL, the firmware-5.50 contract, only when no zeroed open
+ * succeeds. */
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
@@ -143,12 +146,20 @@ static void open_keyboard_phase(unsigned param_null)
     }
 }
 
+static int keyboard_opened(void)
+{
+    for (unsigned i = 0; i < keyboard_count; i++)
+        if (keyboards[i].handle >= 0) return 1;
+    return 0;
+}
+
 int input_open(int *status)
 {
     int users[KEYBOARD_USER_CAPACITY] = {-1, -1, -1, -1, -1, -1, -1};
     int login_users[4] = {-1, -1, -1, -1};
     unsigned user_count = 0;
     int user = -1, r, n = 0;
+    const char *contract = "zero";
 
     r = sceUserServiceInitialize(NULL);
     if (r && r != USER_SERVICE_ALREADY_INITIALIZED)
@@ -186,16 +197,23 @@ int input_open(int *status)
                 keyboard->param_null = param_null;
                 keyboard->decode = users[u] == user;
             }
-    /* Start with the original NULL-parameter contract. Runtime requests one
-     * transition to zero parameters after pre/post privilege windows. */
-    open_keyboard_phase(1);
+    /* The contract is chosen here, once: the runtime's later request for the
+     * zero phase must not replace a working NULL fallback. */
+    open_keyboard_phase(0);
+    if (!keyboard_opened())
+    {
+        open_keyboard_phase(1);
+        contract = keyboard_opened() ? "null" : "none";
+    }
+    keyboard_zero_phase_active = 1;
 
     sceSysmoduleLoadModule(0x00a9);
     sceMouseInit();
     n += snprintf(description + n, sizeof(description) - n,
                   "user=%d pad=%#x keyboard_users=%u login_rc=%#x slots=%u"
-                  " param=null privilege=deferred focus=skipped_unknown_pointer_abi",
-                  user, pad, keyboard_user_count, (unsigned)keyboard_login_rc, keyboard_count);
+                  " param=%s privilege=deferred focus=skipped_unknown_pointer_abi",
+                  user, pad, keyboard_user_count, (unsigned)keyboard_login_rc, keyboard_count,
+                  contract);
     for (int i = 0; i < DEVICE_INDEXES; i++)
     {
         mice[i] = sceMouseOpen(user, 0, i, NULL);
@@ -519,6 +537,57 @@ void input_poll(void (*handler)(const struct input_event *event, void *context),
         if (keyboards[i].handle >= 0) poll_keyboard(i, &keyboards[i], handler, context);
     for (int i = 0; i < DEVICE_INDEXES; i++)
         if (mice[i] >= 0) poll_mouse(i, handler, context);
+}
+
+#define KEYBOARD_LOG_WINDOWS 30
+static unsigned keyboard_log_windows;
+
+void input_keyboard_log(input_log_fn *emit, int window_due)
+{
+    struct input_keyboard_open_diagnostic opened;
+    struct input_keyboard_diagnostics d;
+    unsigned slot, length;
+
+    for (slot = 0; slot < keyboard_count; slot++)
+        if (input_take_keyboard_open_diagnostic(slot, &opened))
+            emit("title keyboard diagnostic=open slot=%u user=%d index=%u param=%s rc=%#x handle=%#x",
+                 slot, opened.user, opened.device_index, opened.param_null ? "null" : "zero",
+                 (unsigned)opened.open_rc, (unsigned)opened.handle);
+    if (input_take_keyboard_activity(&slot, &length))
+        emit("title keyboard state connected=1 active_keys>=1 index=%u length=%u", slot, length);
+    if (!window_due || keyboard_log_windows >= KEYBOARD_LOG_WINDOWS) return;
+    for (slot = 0; slot < keyboard_count; slot++)
+    {
+        const char *phase = keyboard_privilege_called ? "post" : "pre";
+        if (!input_take_keyboard_diagnostics(slot, &d)) continue;
+        emit("title keyboard diagnostic=state slot=%u user=%d index=%u param=%s handle=%#x"
+             " window_s=10 privilege=%s calls=%llu rc_nonzero=%llu last_rc=%#x connected=%llu"
+             " byte8_nonzero=%llu length_nonzero=%llu max_length=%u usage_nonzero=%llu distinct=%u",
+             slot, d.user, d.device_index, d.param_null ? "null" : "zero", (unsigned)d.handle, phase,
+             (unsigned long long)d.reads, (unsigned long long)d.rc_nonzero, (unsigned)d.last_rc,
+             (unsigned long long)d.connected, (unsigned long long)d.byte8_nonzero,
+             (unsigned long long)d.length_nonzero, d.max_length, (unsigned long long)d.usage_nonzero,
+             keyboards[slot].diagnostic_count[INPUT_KEYBOARD_DIAGNOSTIC_STATE]);
+        emit("title keyboard diagnostic=read slot=%u user=%d index=%u param=%s handle=%#x"
+             " window_s=10 privilege=%s calls=%llu errors=%llu last_rc=%#x records=%llu"
+             " connected=%llu usage_nonzero=%llu distinct=%u",
+             slot, d.user, d.device_index, d.param_null ? "null" : "zero", (unsigned)d.handle, phase,
+             (unsigned long long)d.queue_reads, (unsigned long long)d.queue_errors,
+             (unsigned)d.last_queue_rc, (unsigned long long)d.queue_records,
+             (unsigned long long)d.queue_connected, (unsigned long long)d.queue_usage_nonzero,
+             keyboards[slot].diagnostic_count[INPUT_KEYBOARD_DIAGNOSTIC_READ]);
+    }
+    keyboard_log_windows++;
+    if (keyboard_log_windows == 1)
+        emit("title keyboard diagnostic=privilege nid=K1A7IJp5xYc arg=1 rc=%#x boundary=after_pre_window",
+             (unsigned)input_keyboard_set_process_privilege());
+    else if (keyboard_log_windows == 6)
+    {
+        int switching = !keyboard_zero_phase_active;
+        input_keyboard_request_zero_param_phase();
+        emit("title keyboard diagnostic=param_switch from=null to=zero boundary=after_window_6 %s",
+             switching ? "requested" : "skipped=chosen_at_open");
+    }
 }
 
 void input_take_pad_order_stats(unsigned *multi, unsigned *reordered)

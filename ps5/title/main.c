@@ -1088,7 +1088,8 @@ static int desktop_open(void)
         return result;
     }
     user = input_open(&result);
-    fprintf(stderr, "input user=%d status=%#x %s\n", user, result, input_describe());
+    /* The desktop's stderr does not reach the console log. */
+    io_log("input user=%d status=%#x %s", user, result, input_describe());
     pointer_init(DISPLAY_WIDTH, DISPLAY_HEIGHT);
     struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 1, 0};
     forever_title_menu_load(&values);
@@ -1165,6 +1166,12 @@ static void desktop_frame(void)
     compositor_hint_tick(now);
 
     input_poll(on_input, NULL);
+    {
+        static uint64_t keyboard_log_at;
+        int due = keyboard_log_at && now >= keyboard_log_at;
+        if (!keyboard_log_at || due) keyboard_log_at = now + 10000000;
+        input_keyboard_log(io_log, due);
+    }
 #ifdef FOREVER_MENU_DIAG
     menu_diag_step(now);
 #endif
