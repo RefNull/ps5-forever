@@ -5,8 +5,9 @@
  * lives in FOREVER_ROOT. Each function takes its paths as arguments so the
  * host tests can run it against a temporary directory. Managed inspection uses
  * stat plus no-follow open/fstat: the PS5 title sandbox rejects lstat. Empty
- * directory replacement and the rare in-place fallback have separate syscall
- * qualification requirements documented in release/BUILDING.md. */
+ * directory replacement and the rare in-place fallback still need console
+ * qualification on prefix files: O_WRONLY|O_NOFOLLOW|O_NONBLOCK opens, rmdir,
+ * fsync, and ftruncate of a foreign-owned file. */
 #ifndef FOREVER_SETUP_H
 #define FOREVER_SETUP_H
 

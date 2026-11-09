@@ -1,6 +1,22 @@
-# Forever Launcher
+# Forever Launcher (fork)
 
 Run **Battle.net** on a jailbroken **PlayStation 5**.
+
+> [!IMPORTANT]
+> **This is an unofficial fork** of [bizkut's Forever Launcher](https://github.com/bizkut/ps5-forever).
+> It tracks upstream and adds fixes and optimisations that are **work in progress
+> and may be unstable**. For the stable release, use upstream.
+>
+> **Why this fork exists:** mainly to close security and reliability gaps in
+> upstream, such as a write-helper flaw that let a link under `/data/forever`
+> redirect writes elsewhere, outdated ZIP and font parsers, and a fragile helper
+> start-up. Along the way it removes dead code and makes builds reproducible.
+> Graphics performance is currently identical to upstream; the next focus is
+> improvements from a newer vkd3d-proton.
+>
+> - Versions read `01.UUU.FFF`: based on upstream `01.000.UUU`, fork build `FFF`.
+> - It replaces an upstream install (same app ID, same `/data/forever`). To go
+>   back to upstream, delete this app first; your data stays.
 
 Forever Launcher (`PPSA99030`) runs Battle.net and World of Warcraft through
 Wine, using DirectX 12 on the PS5's own GPU. Choose the WoW version you want in
@@ -8,11 +24,10 @@ Battle.net: Retail, Classic, Classic Era, Anniversary, Forever, beta or PTR.
 The launcher detects channel folders rather than keeping a list of versions.
 The supplied settings use 4K output with HDR and frame generation.
 
-In 01.000.014, Retail, Classic, Classic Era, Anniversary and the Forever beta
-all start from Battle.net's **Play** button and were tested on a console.
-Other channels, such as PTR or new versions, are detected the same way but have
-not been tested; detection does not guarantee that every game build will render
-or work online.
+Retail, Classic, Classic Era, Anniversary and the Forever beta start from
+Battle.net's **Play** button and were tested on a console. Other channels, such
+as PTR, are detected the same way but untested; detection does not guarantee
+that a game build renders or works online.
 
 > [!NOTE]
 > This launcher is for World of Warcraft. Other Battle.net games are not
@@ -23,45 +38,20 @@ or work online.
 > supported by Blizzard Entertainment, Sony Interactive Entertainment or Valve.
 > Using unofficial software with an online game is at your own risk.
 
-## Video
+## What's new in 01.024.001
 
-[![Watch Forever Launcher running on PS5](https://img.youtube.com/vi/hlHsBxf-G6Y/maxresdefault.jpg)](https://www.youtube.com/watch?v=hlHsBxf-G6Y)
+Based on upstream [01.000.024](https://github.com/bizkut/ps5-forever/releases/tag/01.000.024).
+Not yet tested on a console.
 
-## What's new in 01.000.024
+- **Safer write helper.** It no longer follows links planted under
+  `/data/forever`, cannot be stalled by special files, starts only once, and
+  says so when another app holds its port instead of silently slowing writes.
+- **Updated components.** Add-on ZIP handling (miniz 3.1.2 plus reader fixes),
+  FreeType 2.15.0 and current root certificates.
+- **Add-ons:** sorting a large catalogue no longer stalls the screen.
+- **Leaner app:** test-only code and unused tooling removed.
 
-- **Fixes Add-ons "The add-on service did not answer in time" / error 61
-  after a PS5 restart.** The write helper's permission repair also opened up
-  the Add-ons helper's private staging folder, and the Add-ons helper refuses
-  to run from a folder others can write to. The write helper now leaves that
-  folder alone, and the Add-ons helper locks it down again by itself, so
-  affected consoles recover without any manual step.
-
-## What's new in 01.000.023
-
-- **The write helper now recovers by itself.** Forever checks it every 30
-  seconds and starts it again if it stops answering. After a reset or deleted
-  Forever data folder, the helper also takes over the new key instead of
-  blocking until a PS5 restart, so Battle.net keeps fast disk writes and sees
-  the real free space (not 16 GB).
-
-## What's new in 01.000.022
-
-- **Faster Battle.net downloads.** Each download connection now gets a larger
-  network receive buffer (the PS5 stopped growing it at 128 KB), and Battle.net's
-  archive writes are merged into fewer, larger disk writes. A WoW Forever update
-  on one PS5 went from 6-7 MB/s to 11-14 MB/s; the gain depends on your line
-  and on Blizzard's servers.
-- **Fixes a Battle.net crash** when the WoW Forever page plays a video during an
-  update: Chromium's audio service now runs inside Battle.net, so page renderers
-  are not refused.
-- **Battle.net opens on the WoW Forever page** when it starts.
-- **Fixes Add-ons error 61** after running another homebrew app whose helper
-  keeps port 9142 (for example Savage Wind). Forever's Add-ons helper now uses
-  port 9143.
-
-01.000.021 added PS5 VRR support for WoW at up to 120 Hz.
-
-Older release notes are on the [releases page](https://github.com/bizkut/ps5-forever/releases).
+Fork releases are on the [releases page](https://github.com/RefNull/ps5-forever/releases).
 
 ## What you need
 
@@ -78,13 +68,7 @@ Older release notes are on the [releases page](https://github.com/bizkut/ps5-for
 
 ## Install
 
-**ProsperoStore** (recommended): install
-[ProsperoStore](https://github.com/darkxex/ProsperoStore/releases), then install
-**Forever Launcher** from it. ProsperoStore also installs updates.
-
-**By hand:**
-
-1. Download `PPSA99030.zip` from the [latest release](https://github.com/bizkut/ps5-forever/releases/latest).
+1. Download `PPSA99030.zip` from the [latest release](https://github.com/RefNull/ps5-forever/releases/latest).
 2. Unzip it. Copy the `PPSA99030` folder to a location ShadowMountPlus scans,
    such as `/data/homebrew/PPSA99030`. The app folder can also be on an external drive;
    games and settings remain in `/data/forever`.
@@ -193,17 +177,8 @@ URL. CurseForge-only rows say so and cannot be installed. GitHub, WoWInterface
 and TukUI entries work without a key. Changes load the next time WoW starts, or
 after typing `/reload` in WoW.
 
-Install and update stream the ZIP through a dedicated native archive worker
-instead of writing or unpacking it through Wine. The worker hashes the received
-bytes, extracts into `C:\Forever\AddonStaging` with bounded parallel workers,
-makes every file durable, and returns only a staged tree. AddonForge still
-checks file types and the selected WoW client's TOCs before same-drive renames
-replace live add-on folders. Interrupted replacements recover when Add-ons
-reopens; backups are retained if recovery cannot finish safely.
-
-If Battle.net needs another web renderer process, Add-ons pauses and releases its
-helper process instead of blocking Battle.net. Close and reopen **Add-ons** to
-resume; the process limit and Battle.net's updater/game reserve stay unchanged.
+If Battle.net needs another web renderer process, Add-ons pauses instead of
+blocking Battle.net. Close and reopen **Add-ons** to resume.
 
 Add-ons are checked against the selected channel's product and client version,
 and go into that channel's own `Interface/AddOns` folder. Find and Starter packs
@@ -244,13 +219,10 @@ its method by itself:
   frame generation. The file is not included and never downloaded.
 - Without it, it uses **AMD FSR 3** frame generation, which needs no extra file.
 
-The GPU game role declares PS5's retail **VRR + high-frame-rate** metadata.
-With VRR set to **Automatic** in the PS5's Screen and Video settings and an
-HDMI 2.1 VRR display, the console can vary refresh while WoW runs. The game
-still requests the measured 119.88 Hz mode for 120 Hz/frame generation and
-falls back to 59.94 Hz when the display does not take it. Battle.net's
-maintenance desktop keeps its normal output path. There is no separate
-Forever menu switch: the console and display settings remain authoritative.
+**VRR**: with VRR set to **Automatic** in the PS5's Screen and Video settings
+and an HDMI 2.1 VRR display, refresh varies while WoW runs. WoW asks for
+120 Hz (119.88 Hz) and falls back to 59.94 Hz if the display refuses. There is
+no menu switch; the console and display settings decide.
 
 To use Lossless Scaling:
 
@@ -314,15 +286,12 @@ Updating the app replaces only the app folder. Your games and settings stay.
 
 ## Updating
 
-- **ProsperoStore** shows updates and installs them.
-- **By hand:** close the app and replace only its `PPSA99030` app folder
-  with the folder from the new zip. Do not delete `/data/forever`.
+Close the app and replace only its `PPSA99030` app folder with the folder from
+the new zip. Do not delete `/data/forever`.
 
-Every start checks the app's Windows files in `/data/forever`, including Wine's
-system DLLs, and repairs any that differ from the app's own copies, because
-mismatched copies can crash games during startup. The first start after an
-update checks every file once (about 15–20 seconds); later starts take less than
-a second.
+Every start checks the app's Windows files in `/data/forever` and repairs any
+that differ from the app's copies. The first start after an update checks every
+file (about 15–20 seconds); later starts take under a second.
 
 ## Uninstalling
 
@@ -350,12 +319,10 @@ delete `/data/forever` to remove Battle.net, WoW and your settings.
   or read-only. Update ShadowMountPlus to a version that lets apps use `/data`.
 - **Battle.net sign-in fails**: use the email code and make sure an authenticator is
   enabled on your account. Third-party sign-in is not supported.
-- **Battle.net reports only about 17 GB free**: Windows disk-space queries use the
-  write broker's real storage counters for `/data/forever`. If the broker is
-  unavailable or is from an older app version, they fall back to the title's
-  synthetic 16 GiB free-space answer. The kernel log identifies the source with
-  `wine: title disk space source=broker` or `source=synthetic`; restart the updated
-  app so it can replace an older broker.
+- **Battle.net reports only about 17 GB free**: the write helper is not answering
+  or is from an older app version, so a fixed 16 GiB answer is used. Restart the
+  app. The kernel log shows
+  `wine: title disk space source=broker` (real) or `source=synthetic` (fallback).
 - **Frame generation does nothing**: check that `wineps5-fg.txt` says `fg=on`.
   Open the Forever menu from Battle.net to turn the performance overlay on; it
   shows `FG LOSSLESS` or `FG FSR3`. For Lossless Scaling, the file must be
@@ -365,8 +332,8 @@ delete `/data/forever` to remove Battle.net, WoW and your settings.
 
 ## Building from source
 
-The release is built by [GitHub Actions](.github/workflows/release.yml) from the
-public sources listed in [`ps5/release/deps.json`](ps5/release/deps.json).
+Releases are built by [`ps5/release/build-linux.sh`](ps5/release/build-linux.sh)
+from the public sources pinned in [`ps5/release/deps.json`](ps5/release/deps.json).
 See [BUILDING.md](BUILDING.md).
 
 ## Credits
@@ -374,6 +341,8 @@ See [BUILDING.md](BUILDING.md).
 Forever Launcher is built on the work of many projects. Thank you to all of them.
 Licences and details are in [NOTICE.md](NOTICE.md).
 
+- [Forever Launcher](https://github.com/bizkut/ps5-forever) by bizkut: the upstream this fork
+  tracks, including its Wine, vkd3d-proton, DXVK and Mesa forks.
 - [Proton](https://github.com/ValveSoftware/Proton) by Valve: the base this project starts from.
 - [Wine](https://www.winehq.org/): runs Windows programs (LGPL-2.1-or-later).
 - [vkd3d-proton](https://github.com/HansKristian-Work/vkd3d-proton) by Hans-Kristian Arntzen
@@ -396,9 +365,7 @@ Licences and details are in [NOTICE.md](NOTICE.md).
 - [FreeType](https://freetype.org/), [GnuTLS](https://www.gnutls.org/),
   [Nettle](https://www.lysator.liu.se/~nisse/nettle/), [libtasn1](https://www.gnu.org/software/libtasn1/)
   and the [pacbrew](https://github.com/OpenAGC/pacbrew-repo) recipes that build them.
-- [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) by drakmor,
-  [ProsperoStore](https://github.com/blackbearreloaded/ProsperoStore) and the
-  [PS5 homebrew catalog](https://github.com/blackbearreloaded/ps5-homebrew-catalog).
+- [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) by drakmor.
 - Noto and Droid fonts (OFL / Apache-2.0) and Mozilla's root certificates (MPL-2.0).
 - Mihawk's earlier Forever Launcher: generated placeholder artwork and runtime icon extraction (MIT).
 - [stb_image](https://github.com/nothings/stb) by Sean Barrett and contributors: PNG decoding (MIT or public domain).

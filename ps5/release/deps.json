@@ -2,7 +2,7 @@
   "schema": 1,
   "project": {
     "name": "ps5-forever",
-    "url": "https://github.com/bizkut/ps5-forever.git",
+    "url": "https://github.com/RefNull/ps5-forever.git",
     "path": "ps5-proton/ps5-wow"
   },
   "sources": [

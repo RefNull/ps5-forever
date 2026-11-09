@@ -92,7 +92,7 @@ def release_members():
             set(actual) != set(names) | {"provenance.json"} or
             "GPL-3.0.txt" not in names):
         raise SystemExit("release licence assets differ from provenance.json")
-    notice = HERE / "NOTICE.md"
+    notice = PS5.parent / "NOTICE.md"
     if notice.is_symlink() or not notice.is_file():
         raise SystemExit(f"missing public notice: {notice}")
     yield "LICENSE", actual["GPL-3.0.txt"]
