@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dave Airlie <airlied@redhat.com>
+Date: Fri, 24 Jul 2026 18:14:07 +1000
+Subject: [PATCH] nir: move load_ssbo_address to taking variable size src0
+
+This allows this to be used in lavapipe.
+
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+(cherry picked from commit 06a120d42b0ab116108370091f761578f6eaf5ef)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44168>
+(cherry picked from commit 88984bc596b675139353280c48fc5fe8538eb787)
+---
+ src/compiler/nir/nir_intrinsics.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/compiler/nir/nir_intrinsics.py b/src/compiler/nir/nir_intrinsics.py
+index 92b84586a9f..6689ef5a1c5 100644
+--- a/src/compiler/nir/nir_intrinsics.py
++++ b/src/compiler/nir/nir_intrinsics.py
+@@ -1321,7 +1321,7 @@ load("per_primitive_input", [1], [BASE, COMPONENT, DEST_TYPE, IO_SEMANTICS], [CA
+ # src[] = { buffer_index, offset }.
+ load("ssbo", [-1, 1], [ACCESS, ALIGN_MUL, ALIGN_OFFSET, OFFSET_SHIFT], [CAN_ELIMINATE])
+ # src[] = { buffer_index, offset }
+-load("ssbo_address", [1, 1], [], [CAN_ELIMINATE, CAN_REORDER])
++load("ssbo_address", [-1, 1], [], [CAN_ELIMINATE, CAN_REORDER])
+ # src[] = { offset }.
+ load("output", [1], [BASE, RANGE, COMPONENT, DEST_TYPE, IO_SEMANTICS], flags=[CAN_ELIMINATE])
+ # src[] = { offset }.
+-- 
+2.54.0 (Apple Git-157)
+

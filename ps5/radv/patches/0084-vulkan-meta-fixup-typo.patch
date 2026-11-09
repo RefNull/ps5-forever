@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erik Faye-Lund <erik.faye-lund@arm.com>
+Date: Mon, 19 Oct 2026 13:59:27 +0200
+Subject: [PATCH] vulkan/meta: fixup typo
+
+Whoops, fat fingers. This should have been dst_view
+
+Fixes: 2c0adfd4a19 ("vulkan/meta: correct image-resolve for 3D image")
+Reviewed-by: Lionel Landwerlin <lionel.g.landwerlin@intel.com>
+(cherry picked from commit 56175d9536156502510ae41b2a10f6d0da360b0f)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45704>
+(cherry picked from commit 19d1d458bdd1b59379e6860314d6201e11de7510)
+---
+ src/vulkan/runtime/vk_meta_blit_resolve.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/vulkan/runtime/vk_meta_blit_resolve.c b/src/vulkan/runtime/vk_meta_blit_resolve.c
+index e4ea43abf33..d443a6a9ba5 100644
+--- a/src/vulkan/runtime/vk_meta_blit_resolve.c
++++ b/src/vulkan/runtime/vk_meta_blit_resolve.c
+@@ -1024,7 +1024,7 @@ vk_meta_resolve_attachment(struct vk_command_buffer *cmd,
+       u_foreach_bit(v, view_mask) {
+          region.srcSubresource.baseArrayLayer = src_view->base_array_layer + v;
+          region.srcSubresource.layerCount = 1;
+-         uint32_t dst_layer = src_view->base_array_layer + v;
++         uint32_t dst_layer = dst_view->base_array_layer + v;
+          if (dst_view->image->image_type == VK_IMAGE_TYPE_3D)
+             region.dstOffset.z = dst_layer;
+          else
+-- 
+2.54.0 (Apple Git-157)
+

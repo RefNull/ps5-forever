@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Connor Abbott <cwabbott0@gmail.com>
+Date: Tue, 18 Aug 2026 13:24:04 -0400
+Subject: [PATCH] nir: Don't allow peephole_select on read_invocation
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+read_invocation and quad_broadcast take an invocation argument which
+must be uniform across the subgroup/quad. Flattening the if can make
+this become non-uniform. This was even tested by CTS, however
+the way the test was written, implementations which silently did
+read_first_invocation on the invocation would happen to pass. On turnip
+we don't always do read_first_invocation, and the HW helpfully hangs
+when the invocation to read_invocation is non-uniform, but we happened
+to not flatten the if, and fixing the underlying cause of that exposed
+this bug.
+
+Cc: mesa-stable
+Reviewed-by: Timur Kristóf <timur.kristof@gmail.com>
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+Signed-off-by: Connor Abbott <cwabbott0@gmail.com>
+(cherry picked from commit 5f1c5da39ef00e4393e1ab1203c661dc079c30bd)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit 73e6093f1db2be53d3694c884da1a429325ee861)
+---
+ src/compiler/nir/nir_opt_peephole_select.c | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/src/compiler/nir/nir_opt_peephole_select.c b/src/compiler/nir/nir_opt_peephole_select.c
+index a9072b2f37a..79c84316929 100644
+--- a/src/compiler/nir/nir_opt_peephole_select.c
++++ b/src/compiler/nir/nir_opt_peephole_select.c
+@@ -191,8 +191,6 @@ block_check_for_allowed_instrs(nir_block *block, unsigned *count,
+          case nir_intrinsic_load_frag_shading_rate:
+          case nir_intrinsic_is_sparse_texels_resident:
+          case nir_intrinsic_sparse_residency_code_and:
+-         case nir_intrinsic_read_invocation:
+-         case nir_intrinsic_quad_broadcast:
+          case nir_intrinsic_quad_swap_horizontal:
+          case nir_intrinsic_quad_swap_vertical:
+          case nir_intrinsic_quad_swap_diagonal:
+@@ -212,6 +210,20 @@ block_check_for_allowed_instrs(nir_block *block, unsigned *count,
+                return false;
+             break;
+ 
++         case nir_intrinsic_read_invocation:
++         case nir_intrinsic_quad_broadcast:
++            if (!alu_ok)
++               return false;
++
++            /* These take an invocation which must be subgroup/quad uniform.
++             * We can't flatten the if unless the invocation is still uniform
++             * after flattening the if. For now we only allow the common case
++             * where the invocation is constant and reject the rest.
++             */
++            if (!nir_src_is_const(intrin->src[1]))
++               return false;
++            break;
++
+          case nir_intrinsic_terminate:
+          case nir_intrinsic_terminate_if:
+          case nir_intrinsic_demote:
+-- 
+2.54.0 (Apple Git-157)
+

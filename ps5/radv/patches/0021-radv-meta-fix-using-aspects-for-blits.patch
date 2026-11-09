@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Fri, 14 Aug 2026 14:30:41 +0200
+Subject: [PATCH] radv/meta: fix using aspects for blits
+
+It can be a subset of the image aspects. It's also supposed to use the
+ones passed via vkCmdBlitImage, so use the image views.
+
+I think it just worked by accident but it was broken with two
+consecutive blits one with depth-only and the second with stencil-only
+due to the key being similar.
+
+Cc: mesa-stable
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit f38b05eaaf2d4f570fa417c6ac3fe80939d71c47)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit a9b0d69cbfca529da901bcd3d1038ffb09e34ecf)
+---
+ src/amd/vulkan/meta/radv_meta_blit.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/src/amd/vulkan/meta/radv_meta_blit.c b/src/amd/vulkan/meta/radv_meta_blit.c
+index e36da447f31..814bc11a7ab 100644
+--- a/src/amd/vulkan/meta/radv_meta_blit.c
++++ b/src/amd/vulkan/meta/radv_meta_blit.c
+@@ -73,10 +73,10 @@ get_pipeline(struct radv_device *device, const struct radv_image_view *src_iview
+ 
+    memset(&key, 0, sizeof(key));
+    key.type = RADV_META_OBJECT_KEY_BLIT;
+-   key.aspects = src_image->vk.aspects;
++   key.aspects = aspect;
+    key.image_type = src_image->vk.image_type;
+ 
+-   if (src_image->vk.aspects == VK_IMAGE_ASPECT_COLOR_BIT)
++   if (aspect == VK_IMAGE_ASPECT_COLOR_BIT)
+       key.format = dst_image->vk.format;
+ 
+    VkPipeline pipeline_from_cache = vk_meta_lookup_pipeline(&device->meta_state.device, &key, sizeof(key));
+@@ -288,7 +288,7 @@ meta_emit_blit(struct radv_cmd_buffer *cmd_buffer, struct radv_image_view *src_i
+    };
+ 
+    VkRenderingAttachmentInfo color_att;
+-   if (src_image->vk.aspects == VK_IMAGE_ASPECT_COLOR_BIT) {
++   if (src_iview->vk.aspects == VK_IMAGE_ASPECT_COLOR_BIT) {
+       color_att = (VkRenderingAttachmentInfo){
+          .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+          .imageView = radv_image_view_to_handle(dst_iview),
+@@ -301,7 +301,7 @@ meta_emit_blit(struct radv_cmd_buffer *cmd_buffer, struct radv_image_view *src_i
+    }
+ 
+    VkRenderingAttachmentInfo depth_att;
+-   if (src_image->vk.aspects & VK_IMAGE_ASPECT_DEPTH_BIT) {
++   if (src_iview->vk.aspects & VK_IMAGE_ASPECT_DEPTH_BIT) {
+       depth_att = (VkRenderingAttachmentInfo){
+          .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+          .imageView = radv_image_view_to_handle(dst_iview),
+@@ -313,7 +313,7 @@ meta_emit_blit(struct radv_cmd_buffer *cmd_buffer, struct radv_image_view *src_i
+    }
+ 
+    VkRenderingAttachmentInfo stencil_att;
+-   if (src_image->vk.aspects & VK_IMAGE_ASPECT_STENCIL_BIT) {
++   if (src_iview->vk.aspects & VK_IMAGE_ASPECT_STENCIL_BIT) {
+       stencil_att = (VkRenderingAttachmentInfo){
+          .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+          .imageView = radv_image_view_to_handle(dst_iview),
+-- 
+2.54.0 (Apple Git-157)
+

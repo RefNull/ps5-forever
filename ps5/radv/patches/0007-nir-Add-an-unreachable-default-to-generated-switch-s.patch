@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Dylan Baker <dylan.c.baker@intel.com>
+Date: Wed, 5 Aug 2026 21:44:59 +0000
+Subject: [PATCH] nir: Add an unreachable default to generated switch statement
+
+Coverity notices that there's no requirement that the bit_size must be 64, 32,
+or 16. While currently this unreachable cannot be reached, it seems better to
+have something here to catch a theoritcal float8 or float128 than to let it
+silently fall through.
+
+Fixes: 32e91a74675 ("nir: add new float multiply-add opcodes")
+CID: 1696245
+Reviewed-by: Karol Herbst <kherbst@redhat.com>
+Reviewed-by: Eric Engestrom <eric@engestrom.ch>
+(cherry picked from commit db1325d214f4f045ab37f119398cbccdd32a8eeb)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit 7bd6535e1c1103c178529ef5eaed65446cf62a17)
+---
+ src/compiler/nir/nir_constant_expressions.py | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/compiler/nir/nir_constant_expressions.py b/src/compiler/nir/nir_constant_expressions.py
+index dcc9e2677c2..be595c7fbad 100644
+--- a/src/compiler/nir/nir_constant_expressions.py
++++ b/src/compiler/nir/nir_constant_expressions.py
+@@ -122,6 +122,9 @@ handle_intermediate_float_result(double value, unsigned execution_mode, unsigned
+         } else {
+             const_val.u16 = _mesa_float_to_float16_rtne(value);
+         }
++        break;
++    default:
++        UNREACHABLE("Unsupported bit_size. Should be 64, 32, or 16");
+     }
+ 
+     return get_float_source(const_val, execution_mode, bit_size);
+-- 
+2.54.0 (Apple Git-157)
+

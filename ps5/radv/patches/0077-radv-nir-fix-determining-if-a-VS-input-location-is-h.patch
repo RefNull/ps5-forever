@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Mon, 12 Oct 2026 18:04:06 +0200
+Subject: [PATCH] radv/nir: fix determining if a VS input location is high
+ 64-bit
+
+It's the high dvec2 only if the component count is 3 or 4 because 1 and
+2 only use one slot.
+
+This fixes failures with a recent VKCTS change in
+dEQP-VK.robustness.vertex_access.r64*.
+
+Fixes: 8e6bff4caac ("radv: Lower 64-bit VS inputs to 32-bit")
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 0ad3997b86efbb2b71f6d0c498fda216a9b7cfa0)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45215>
+(cherry picked from commit 78d7c638338097cb0acae91d1979f105a6c0cbe7)
+---
+ src/amd/vulkan/nir/radv_nir_lower_vs_inputs.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/amd/vulkan/nir/radv_nir_lower_vs_inputs.c b/src/amd/vulkan/nir/radv_nir_lower_vs_inputs.c
+index 02b09d972ef..0f921b90526 100644
+--- a/src/amd/vulkan/nir/radv_nir_lower_vs_inputs.c
++++ b/src/amd/vulkan/nir/radv_nir_lower_vs_inputs.c
+@@ -199,13 +199,13 @@ adjust_format(const enum pipe_format attrib_format)
+ }
+ 
+ static bool
+-location_is_64bit(const unsigned loc, const lower_vs_inputs_state *const s)
++location_is_high_64bit(const unsigned loc, const lower_vs_inputs_state *const s)
+ {
+    if (!(s->gfx_state->vi.attributes_valid & (1 << loc)))
+       return false;
+ 
+    const enum pipe_format f = s->gfx_state->vi.vertex_attribute_formats[loc];
+-   return util_format_get_max_channel_size(f) == 64;
++   return util_format_get_max_channel_size(f) == 64 && util_format_get_nr_components(f) > 2;
+ }
+ 
+ static unsigned
+@@ -226,7 +226,7 @@ location_from_intrinsic(nir_intrinsic_instr *intrin, const lower_vs_inputs_state
+     * but 64-bit inputs consume twice as many.
+     * 64-bit variables must not have a component of 1 or 3.
+     */
+-   if (loc > 0 && location_is_64bit(loc - 1, s)) {
++   if (loc > 0 && location_is_high_64bit(loc - 1, s)) {
+       *is_high_dvec2 = 1;
+       return loc - 1;
+    }
+-- 
+2.54.0 (Apple Git-157)
+

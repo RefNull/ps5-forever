@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Benjamin Cheng <benjamin.cheng@amd.com>
+Date: Thu, 6 Aug 2026 16:36:28 -0400
+Subject: [PATCH] ac: Fix guardband calculation for large viewports
+
+GFX12 raised the max viewport size to 64K, which spans the whole
+coordinate range. A viewport that fills the range, or whose center goes
+negative after a y-flip (and so can't be recentered by the hw_screen_offset),
+has no room for a guardband and computes a < 1 value, tripping the now
+removed assert. Clamp to 1 so that the guardband is basically disabled.
+
+Assisted-by: Claude Opus 4.8
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/15010
+Cc: mesa-stable
+Signed-off-by: Benjamin Cheng <benjamin.cheng@amd.com>
+Reviewed-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit aebd9a0a2327aaaabb9d10be6cca8e5d1ed1fc85)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit 2f47c1185af885220da4c68633bab3ebf47afcda)
+---
+ src/amd/common/ac_guardband.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/common/ac_guardband.c b/src/amd/common/ac_guardband.c
+index bdd1de6ff4a..a7589f63f66 100644
+--- a/src/amd/common/ac_guardband.c
++++ b/src/amd/common/ac_guardband.c
+@@ -83,11 +83,15 @@ ac_compute_guardband(const struct radeon_info *info, int minx, int miny,
+    top = (-max_range - 1 - translate[1]) / scale[1];
+    bottom = (max_range - translate[1]) / scale[1];
+ 
+-   assert(left <= -1 && top <= -1 && right >= 1 && bottom >= 1);
+-
+    guardband_x = MIN2(-left, right);
+    guardband_y = MIN2(-top, bottom);
+ 
++   /* A viewport too large or off-center to fit the coord range should just
++    * clamp to 1.0 to clip at the viewport edge.
++    */
++   guardband_x = MAX2(guardband_x, 1.0);
++   guardband_y = MAX2(guardband_y, 1.0);
++
+    float discard_x = 1.0;
+    float discard_y = 1.0;
+ 
+-- 
+2.54.0 (Apple Git-157)
+

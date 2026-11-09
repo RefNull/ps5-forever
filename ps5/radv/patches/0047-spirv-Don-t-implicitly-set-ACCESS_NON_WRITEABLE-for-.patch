@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: rajaryan1492007 <rajaryan1492007@gmail.com>
+Date: Tue, 4 Aug 2026 13:34:34 +0530
+Subject: [PATCH] spirv: Don't implicitly set ACCESS_NON_WRITEABLE for input
+ attachments
+
+Khronos recently clarified that input attachments should be treated as
+READ_WRITE_IMAGE_BIT in descriptor heaps, because current shader compilers
+do not emit the NonWritable decoration for them.
+
+VTN selects the resource type (read-only vs read-write) based on
+ACCESS_NON_WRITEABLE when determining var->var->data.resource_type.
+Implicitly forcing ACCESS_NON_WRITEABLE caused input attachments to be
+marked read-only, which broke descriptor heap lowering (e.g. in RADV)
+where the lowering expects matching read-write mappings.
+
+Removing this implicit flag ensures VTN sets var->var->data.resource_type
+correctly unless explicitly decorated with NonWritable by the application.
+
+Ref: Khronos issue #4948, VVL PR #12976
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/issues/15987
+Cc: mesa-stable
+(cherry picked from commit 46744ba2134b19e766c4ddb9a82ac34980400903)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44489>
+(cherry picked from commit 076b75387dd19a49b1037ab648ce9c1bb6e422a6)
+---
+ src/compiler/spirv/vtn_variables.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/compiler/spirv/vtn_variables.c b/src/compiler/spirv/vtn_variables.c
+index e9607d0caaf..399a6e35aac 100644
+--- a/src/compiler/spirv/vtn_variables.c
++++ b/src/compiler/spirv/vtn_variables.c
+@@ -1637,7 +1637,6 @@ var_decoration_cb(struct vtn_builder *b, struct vtn_value *val, int member,
+       return;
+    case SpvDecorationInputAttachmentIndex:
+       vtn_var->input_attachment_index = dec->operands[0];
+-      vtn_var->access |= ACCESS_NON_WRITEABLE;
+       return;
+    case SpvDecorationAlignment:
+       var_set_alignment(b, vtn_var, dec->operands[0]);
+-- 
+2.54.0 (Apple Git-157)
+

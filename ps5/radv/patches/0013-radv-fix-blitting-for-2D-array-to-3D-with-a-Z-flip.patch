@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Tue, 4 Aug 2026 12:19:20 +0200
+Subject: [PATCH] radv: fix blitting for 2D array to 3D with a Z flip
+
+It must select the correct source layer.
+
+This fixes new VKCTS coverage
+dEQP-VK.api.copy_and_blit.*.blit_image.simple_tests.*reverse_blit*.
+
+Cc: mesa-stable
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit ac2f18a914963e203db17de12e4f59ce28c22afe)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit b30822970cf1e64a76a1fabc5b2d39526bb88f0f)
+---
+ src/amd/vulkan/meta/radv_meta_blit.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/vulkan/meta/radv_meta_blit.c b/src/amd/vulkan/meta/radv_meta_blit.c
+index 1119ef309c2..e36da447f31 100644
+--- a/src/amd/vulkan/meta/radv_meta_blit.c
++++ b/src/amd/vulkan/meta/radv_meta_blit.c
+@@ -411,9 +411,14 @@ blit_image(struct radv_cmd_buffer *cmd_buffer, struct radv_image *src_image, VkI
+    if (src_image->vk.image_type == VK_IMAGE_TYPE_3D)
+       depth_center_offset = 0.5 / (dst_end - dst_start) * (src_end - src_start);
+ 
++   unsigned src_layer_start = src_start;
++   int src_layer_step = 1;
++
+    if (flip_z) {
+       src_start = src_end;
+       src_z_step *= -1;
++      src_layer_start = src_end - 1;
++      src_layer_step *= -1;
+       depth_center_offset *= -1;
+    }
+ 
+@@ -465,7 +470,8 @@ blit_image(struct radv_cmd_buffer *cmd_buffer, struct radv_image *src_image, VkI
+       const uint32_t dst_array_slice = dst_start + i;
+ 
+       /* 3D images have just 1 layer */
+-      const uint32_t src_array_slice = src_image->vk.image_type == VK_IMAGE_TYPE_3D ? 0 : src_start + i;
++      const uint32_t src_array_slice =
++         src_image->vk.image_type == VK_IMAGE_TYPE_3D ? 0 : src_layer_start + i * src_layer_step;
+ 
+       const VkImageViewUsage2CreateInfoKHR dst_iview_usage_info = {
+          .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_2_CREATE_INFO_KHR,
+-- 
+2.54.0 (Apple Git-157)
+

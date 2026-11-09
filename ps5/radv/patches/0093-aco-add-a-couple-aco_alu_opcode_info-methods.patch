@@ -1,0 +1,77 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rhys Perry <pendingchaos02@gmail.com>
+Date: Tue, 20 Oct 2026 09:58:06 +0100
+Subject: [PATCH] aco: add a couple aco_alu_opcode_info methods
+
+Signed-off-by: Rhys Perry <pendingchaos02@gmail.com>
+Fixes: 984aa6e0855 ("aco/ra: create s_bitset")
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+(cherry picked from commit 02b79d91368b6eba43e80d91a747ccff509792cf)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45704>
+(cherry picked from commit 0a16ea58275b1c37d149418a2261314526a2b164)
+---
+ src/amd/compiler/aco_ir.h         | 15 +++++++++++++++
+ src/amd/compiler/aco_validate.cpp | 13 +++----------
+ 2 files changed, 18 insertions(+), 10 deletions(-)
+
+diff --git a/src/amd/compiler/aco_ir.h b/src/amd/compiler/aco_ir.h
+index 73ee25681f2..d4e5777e089 100644
+--- a/src/amd/compiler/aco_ir.h
++++ b/src/amd/compiler/aco_ir.h
+@@ -2078,6 +2078,7 @@ bool needs_exec_mask(const Instruction* instr);
+ aco_opcode get_vcmp_inverse(aco_opcode op);
+ aco_opcode get_vcmp_swapped(aco_opcode op);
+ aco_opcode get_vcmpx(aco_opcode op);
++/* Assumes that "op" is a VOPC opcode. */
+ bool is_cmpx(aco_opcode op);
+ 
+ aco_opcode get_swapped_opcode(aco_opcode opcode, unsigned idx0, unsigned idx1);
+@@ -2636,6 +2637,20 @@ struct aco_alu_opcode_info {
+    aco_type def_types[3];
+    fixed_reg op_fixed_reg[4];
+    fixed_reg def_fixed_reg[3];
++
++   aco_type get_def_type(unsigned idx) const
++   {
++      /* v_cmpx instructions before GFX10 have 2 definitions but only one def_type. */
++      return def_types[MIN2(idx, num_defs - 1u)];
++   }
++
++   fixed_reg get_def_fixed_reg(Instruction* instr, enum amd_gfx_level gfx_level, unsigned idx) const
++   {
++      if (gfx_level < GFX10 && def_fixed_reg[0] == fixed_exec && instr->isVOPC())
++         return idx == 0 ? not_fixed : fixed_exec;
++      else
++         return def_fixed_reg[idx];
++   }
+ };
+ 
+ typedef struct {
+diff --git a/src/amd/compiler/aco_validate.cpp b/src/amd/compiler/aco_validate.cpp
+index 8530f835ccd..0c46cffd402 100644
+--- a/src/amd/compiler/aco_validate.cpp
++++ b/src/amd/compiler/aco_validate.cpp
+@@ -187,16 +187,9 @@ validate_ir(Program* program)
+             num_defs = MIN2(num_defs, instr->definitions.size());
+ 
+             for (unsigned i = 0; i < num_defs; i++) {
+-               aco_type type;
+-               fixed_reg fixed_reg;
+-               if (instr->isVOPC() && program->gfx_level < GFX10 &&
+-                   opcode_info.def_fixed_reg[0] == fixed_exec) {
+-                  type = opcode_info.def_types[0];
+-                  fixed_reg = i == 0 ? not_fixed : fixed_exec;
+-               } else {
+-                  type = opcode_info.def_types[i];
+-                  fixed_reg = opcode_info.def_fixed_reg[i];
+-               }
++               aco_type type = opcode_info.get_def_type(i);
++               fixed_reg fixed_reg =
++                  opcode_info.get_def_fixed_reg(instr.get(), program->gfx_level, i);
+ 
+                if (fixed_reg == fixed_m0) {
+                   check(instr->definitions[i].isFixed() && instr->definitions[i].physReg() == m0,
+-- 
+2.54.0 (Apple Git-157)
+

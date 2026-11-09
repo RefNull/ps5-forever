@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Wed, 16 Sep 2026 14:53:09 +0200
+Subject: [PATCH] radv: fix a typo when computing the binning size on
+ GFX10-11.7
+
+It was supposed to be height, not width.
+
+Found by inspection.
+
+Cc: mesa-stable
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 1f4f4aeee9db552e2955db77ee5584aa729b0644)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit 9413f8458adb0d0d6f2eab6c6b3c06001474bd66)
+---
+ src/amd/vulkan/radv_cmd_buffer.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/amd/vulkan/radv_cmd_buffer.c b/src/amd/vulkan/radv_cmd_buffer.c
+index 776a02bbbec..6ad784c5905 100644
+--- a/src/amd/vulkan/radv_cmd_buffer.c
++++ b/src/amd/vulkan/radv_cmd_buffer.c
+@@ -2386,7 +2386,7 @@ radv_gfx10_compute_bin_size(struct radv_cmd_buffer *cmd_buffer)
+    }
+ 
+    extent.width = MAX2(extent.width, 128);
+-   extent.height = MAX2(extent.width, pdev->info.gfx_level >= GFX12 ? 128 : 64);
++   extent.height = MAX2(extent.height, pdev->info.gfx_level >= GFX12 ? 128 : 64);
+ 
+    if (pdev->info.gfx_level >= GFX12) {
+       /* GFX12+ notes:
+-- 
+2.54.0 (Apple Git-157)
+

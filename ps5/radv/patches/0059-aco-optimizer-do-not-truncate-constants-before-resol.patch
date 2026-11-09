@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Georg Lehmann <dadschoorse@gmail.com>
+Date: Thu, 17 Sep 2026 18:30:21 +0200
+Subject: [PATCH] aco/optimizer: do not truncate constants before resolving
+ extracts
+
+This happens when we combine non packed add with a packed multiplication.
+
+No Foz-DB changes on Navi48.
+
+Fixes: 5abc9615145 ("aco/optimizer: use new helpers to create fma")
+
+Reviewed-by: Rhys Perry <pendingchaos02@gmail.com>
+(cherry picked from commit 7dcc2c306ceb4f36fab5d582c426d8749d0d6be1)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit 3233678c8024a61e95aa6520a18eeb5171202d56)
+---
+ src/amd/compiler/aco_optimizer.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/compiler/aco_optimizer.cpp b/src/amd/compiler/aco_optimizer.cpp
+index 280ef06fb0d..23fe9f2ed34 100644
+--- a/src/amd/compiler/aco_optimizer.cpp
++++ b/src/amd/compiler/aco_optimizer.cpp
+@@ -3800,8 +3800,14 @@ op_info_get_constant(opt_ctx& ctx, alu_opt_op op_info, aco_type type, uint64_t*
+ {
+    if (op_info.op.isTemp()) {
+       unsigned id = original_temp_id(ctx, op_info.op.getTemp());
++
++      /* Use the size from the Temp, not the type here, to avoid truncating
++       * values that are accessed with extracts of the high bits.
++       */
++      unsigned constant_size = op_info.op.bytes() * 8;
++
+       if (ctx.info[id].is_constant())
+-         op_info.op = get_constant_op(ctx, ctx.info[id], type.bytes() * 8);
++         op_info.op = get_constant_op(ctx, ctx.info[id], constant_size);
+    }
+    if (!op_info.op.isConstant())
+       return false;
+-- 
+2.54.0 (Apple Git-157)
+

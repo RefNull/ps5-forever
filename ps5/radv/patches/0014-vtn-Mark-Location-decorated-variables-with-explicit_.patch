@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Benjamin Cheng <benjamin.cheng@amd.com>
+Date: Mon, 10 Aug 2026 16:13:39 -0400
+Subject: [PATCH] vtn: Mark Location decorated variables with explicit_location
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16043
+Cc: mesa-stable
+Signed-off-by: Benjamin Cheng <benjamin.cheng@amd.com>
+Reviewed-by: Alejandro Piñeiro <apinheiro@igalia.com>
+Reviewed-by: Marek Olšák <maraeo@gmail.com>
+(cherry picked from commit e6df791052489503918802b52611f79009a096b3)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit fdf0e4ad243fd36ea5b5ef08d76b98bf465594c6)
+---
+ src/compiler/spirv/vtn_variables.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/src/compiler/spirv/vtn_variables.c b/src/compiler/spirv/vtn_variables.c
+index 4c4f140fa5f..e9607d0caaf 100644
+--- a/src/compiler/spirv/vtn_variables.c
++++ b/src/compiler/spirv/vtn_variables.c
+@@ -1729,6 +1729,7 @@ var_decoration_cb(struct vtn_builder *b, struct vtn_value *val, int member,
+             vtn_var->var->members[member].location = location;
+       }
+ 
++      vtn_var->var->data.explicit_location = true;
+       return;
+    } else {
+       if (vtn_var->var) {
+-- 
+2.54.0 (Apple Git-157)
+

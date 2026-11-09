@@ -1,0 +1,147 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Marek=20Ol=C5=A1=C3=A1k?= <maraeo@gmail.com>
+Date: Tue, 25 Aug 2026 12:18:45 -0400
+Subject: [PATCH] radv: skip indirect draws with (max)drawCount == 0
+
+The FW may execute the first draw regardless of the count.
+
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16183
+
+Reviewed-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Cc: mesa-stable
+(cherry picked from commit a2f2518a9febf1b3b791cd2df079dbd25e56939b)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44168>
+(cherry picked from commit c07c4aeec0d830880993ab55964bfb688ecee7bf)
+Forever: conflict resolved against PS5_Mesa's GS-compute draw paths: kept their early returns and passed the new max_indirect_draw_count argument; the GS-compute rasterization draw, which can be indirect, passes 1 so it is not skipped.
+---
+ src/amd/vulkan/radv_cmd_buffer.c | 29 +++++++++++++++++------------
+ 1 file changed, 17 insertions(+), 12 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_cmd_buffer.c b/src/amd/vulkan/radv_cmd_buffer.c
+index 575680cb5cf..9f2fea98a19 100644
+--- a/src/amd/vulkan/radv_cmd_buffer.c
++++ b/src/amd/vulkan/radv_cmd_buffer.c
+@@ -14024,7 +14024,8 @@ radv_split_cmd_stream_if_due(struct radv_cmd_buffer *cmd_buffer)
+ 
+ /* MUST inline this function to avoid massive perf loss in drawoverhead */
+ ALWAYS_INLINE static bool
+-radv_before_draw(struct radv_cmd_buffer *cmd_buffer, const struct radv_draw_info *info, uint32_t drawCount, bool dgc)
++radv_before_draw(struct radv_cmd_buffer *cmd_buffer, const struct radv_draw_info *info, uint32_t drawCount,
++                 uint32_t max_indirect_draw_count, bool dgc)
+ {
+    const struct radv_device *device = radv_cmd_buffer_device(cmd_buffer);
+    const struct radv_physical_device *pdev = radv_device_physical(device);
+@@ -14046,6 +14047,9 @@ radv_before_draw(struct radv_cmd_buffer *cmd_buffer, const struct radv_draw_info
+       /* Handle count == 0. */
+       if (unlikely(!info->count && !info->strmout_va))
+          return false;
++   } else {
++      if (!max_indirect_draw_count)
++         return false;
+    }
+ 
+    if (!info->indexed && pdev->info.gfx_level >= GFX7) {
+@@ -14643,7 +14647,7 @@ radv_gs_compute_rasterize(struct radv_cmd_buffer *cmd_buffer, const struct radv_
+       .indirect_va = direct ? 0 : indirect_va,
+       .stride = sizeof(struct poly_indirect_draw),
+    };
+-   if (radv_before_draw(cmd_buffer, &rast, 1, false)) {
++   if (radv_before_draw(cmd_buffer, &rast, 1, 1, false)) {
+       radv_emit_userdata_address(device, cmd_buffer->cs, state->shaders[MESA_SHADER_VERTEX], AC_UD_VS_GS_COMPUTE_DRAW,
+                                  draw_va);
+       if (!direct) {
+@@ -15116,7 +15120,7 @@ radv_CmdDraw(VkCommandBuffer commandBuffer, uint32_t vertexCount, uint32_t insta
+    if (radv_gs_compute_draw(cmd_buffer, &info, firstVertex, 0, 0))
+       return;
+ 
+-   if (!radv_before_draw(cmd_buffer, &info, 1, false))
++   if (!radv_before_draw(cmd_buffer, &info, 1, 0, false))
+       return;
+    const VkMultiDrawInfoEXT minfo = {firstVertex, vertexCount};
+    radv_emit_direct_draw_packets(cmd_buffer, &info, 1, &minfo, 0, 0);
+@@ -15149,7 +15153,7 @@ radv_CmdDrawMultiEXT(VkCommandBuffer commandBuffer, uint32_t drawCount, const Vk
+       return;
+    }
+ 
+-   if (!radv_before_draw(cmd_buffer, &info, drawCount, false))
++   if (!radv_before_draw(cmd_buffer, &info, drawCount, 0, false))
+       return;
+    radv_emit_direct_draw_packets(cmd_buffer, &info, drawCount, pVertexInfo, 0, stride);
+    radv_after_draw(cmd_buffer);
+@@ -15172,7 +15176,7 @@ radv_CmdDrawIndexed(VkCommandBuffer commandBuffer, uint32_t indexCount, uint32_t
+    if (radv_gs_compute_draw(cmd_buffer, &info, firstIndex, vertexOffset, 0))
+       return;
+ 
+-   if (!radv_before_draw(cmd_buffer, &info, 1, false))
++   if (!radv_before_draw(cmd_buffer, &info, 1, 0, false))
+       return;
+    const VkMultiDrawIndexedInfoEXT minfo = {firstIndex, indexCount, vertexOffset};
+    radv_emit_draw_packets_indexed(cmd_buffer, &info, 1, &minfo, 0, NULL);
+@@ -15208,7 +15212,7 @@ radv_CmdDrawMultiIndexedEXT(VkCommandBuffer commandBuffer, uint32_t drawCount,
+       return;
+    }
+ 
+-   if (!radv_before_draw(cmd_buffer, &info, drawCount, false))
++   if (!radv_before_draw(cmd_buffer, &info, drawCount, 0, false))
+       return;
+    radv_emit_draw_packets_indexed(cmd_buffer, &info, drawCount, pIndexInfo, stride, pVertexOffset);
+    radv_after_draw(cmd_buffer);
+@@ -15252,7 +15256,7 @@ radv_CmdDrawIndirect2KHR(VkCommandBuffer commandBuffer, const VkDrawIndirect2Inf
+    if (radv_gs_compute_draw_indirect(cmd_buffer, &info))
+       return;
+ 
+-   if (!radv_before_draw(cmd_buffer, &info, 1, false))
++   if (!radv_before_draw(cmd_buffer, &info, 1, pInfo->drawCount, false))
+       return;
+    radv_emit_indirect_draw_packets(cmd_buffer, &info);
+    radv_after_draw(cmd_buffer);
+@@ -15296,7 +15300,7 @@ radv_CmdDrawIndexedIndirect2KHR(VkCommandBuffer commandBuffer, const VkDrawIndir
+    if (radv_gs_compute_draw_indirect(cmd_buffer, &info))
+       return;
+ 
+-   if (!radv_before_draw(cmd_buffer, &info, 1, false))
++   if (!radv_before_draw(cmd_buffer, &info, 1, pInfo->drawCount, false))
+       return;
+    radv_emit_indirect_draw_packets(cmd_buffer, &info);
+    radv_after_draw(cmd_buffer);
+@@ -15344,7 +15348,7 @@ radv_CmdDrawIndirectCount2KHR(VkCommandBuffer commandBuffer, const VkDrawIndirec
+    if (radv_gs_compute_draw_indirect(cmd_buffer, &info))
+       return;
+ 
+-   if (!radv_before_draw(cmd_buffer, &info, 1, false))
++   if (!radv_before_draw(cmd_buffer, &info, 1, pInfo->maxDrawCount, false))
+       return;
+    radv_emit_indirect_draw_packets(cmd_buffer, &info);
+    radv_after_draw(cmd_buffer);
+@@ -15393,7 +15397,7 @@ radv_CmdDrawIndexedIndirectCount2KHR(VkCommandBuffer commandBuffer, const VkDraw
+    if (radv_gs_compute_draw_indirect(cmd_buffer, &info))
+       return;
+ 
+-   if (!radv_before_draw(cmd_buffer, &info, 1, false))
++   if (!radv_before_draw(cmd_buffer, &info, 1, pInfo->maxDrawCount, false))
+       return;
+    radv_emit_indirect_draw_packets(cmd_buffer, &info);
+    radv_after_draw(cmd_buffer);
+@@ -15972,7 +15976,8 @@ radv_CmdExecuteGeneratedCommandsEXT(VkCommandBuffer commandBuffer, VkBool32 isPr
+          if (!radv_before_taskmesh_draw(cmd_buffer, &info, 1, true))
+             return;
+       } else {
+-         if (!radv_before_draw(cmd_buffer, &info, 1, true))
++         if (!radv_before_draw(cmd_buffer, &info, 1, layout->vk.draw_count ? pGeneratedCommandsInfo->maxDrawCount : 1,
++                               true))
+             return;
+       }
+    }
+@@ -18170,7 +18175,7 @@ radv_CmdDrawIndirectByteCount2EXT(VkCommandBuffer commandBuffer, uint32_t instan
+       return;
+    }
+ 
+-   if (!radv_before_draw(cmd_buffer, &info, 1, false))
++   if (!radv_before_draw(cmd_buffer, &info, 1, 0, false))
+       return;
+    struct VkMultiDrawInfoEXT minfo = {0, 0};
+    radv_emit_strmout_buffer(cmd_buffer, &info, counterOffset);
+-- 
+2.54.0 (Apple Git-157)
+

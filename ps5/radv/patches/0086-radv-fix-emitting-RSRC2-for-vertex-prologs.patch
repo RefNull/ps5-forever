@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Fri, 16 Oct 2026 10:16:53 +0200
+Subject: [PATCH] radv: fix emitting RSRC2 for vertex prologs
+
+For VS+TCS, RSRC2 contains the dynamic LDS size which is emitted by
+radv_emit_tcs_tes_state(). So if vkCmdSetVertexInputEXT() is called
+again, it might just overwrite the previous LDS size.
+
+Found by inspection.
+
+Cc: mesa-stable
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 76ae1348380cae278d9996176009a8ab84de9ff8)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45704>
+(cherry picked from commit defd2564723ec621fada1fe4021f071ffd2fa362)
+---
+ src/amd/vulkan/radv_cmd_buffer.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_cmd_buffer.c b/src/amd/vulkan/radv_cmd_buffer.c
+index a3d615250a2..0c38209faf4 100644
+--- a/src/amd/vulkan/radv_cmd_buffer.c
++++ b/src/amd/vulkan/radv_cmd_buffer.c
+@@ -6163,7 +6163,7 @@ emit_prolog_regs(struct radv_cmd_buffer *cmd_buffer, const struct radv_shader *v
+    if (pdev->info.gfx_level >= GFX12) {
+       gfx12_push_sh_reg(vs_shader->regs.pgm_lo, prolog->va >> 8);
+       gfx12_push_sh_reg(vs_shader->regs.pgm_rsrc1, rsrc1);
+-      if (vs_shader->info.merged_shader_compiled_separately)
++      if (vs_shader->info.merged_shader_compiled_separately && vs_shader->info.next_stage == MESA_SHADER_GEOMETRY)
+          gfx12_push_sh_reg(vs_shader->regs.pgm_rsrc2, rsrc2);
+ 
+       if (prolog->key.vs.is_ngg) {
+@@ -6175,7 +6175,7 @@ emit_prolog_regs(struct radv_cmd_buffer *cmd_buffer, const struct radv_shader *v
+    } else {
+       radeon_set_sh_reg(vs_shader->regs.pgm_lo, prolog->va >> 8);
+       radeon_set_sh_reg(vs_shader->regs.pgm_rsrc1, rsrc1);
+-      if (vs_shader->info.merged_shader_compiled_separately)
++      if (vs_shader->info.merged_shader_compiled_separately && vs_shader->info.next_stage == MESA_SHADER_GEOMETRY)
+          radeon_set_sh_reg(vs_shader->regs.pgm_rsrc2, rsrc2);
+ 
+       if (pdev->info.gfx_level >= GFX11) {
+-- 
+2.54.0 (Apple Git-157)
+

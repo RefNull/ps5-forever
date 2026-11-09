@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rhys Perry <pendingchaos02@gmail.com>
+Date: Wed, 5 Aug 2026 14:05:33 +0100
+Subject: [PATCH] nir/cf: add nir_cf_list_detach_ssa
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Rhys Perry <pendingchaos02@gmail.com>
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+Backport-to: *
+Reviewed-by: Daniel Schürmann <daniel@schuermann.dev>
+(cherry picked from commit 471d48f8195a7367bfadc69179f9346ae959e4e0)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit ebe53ae549975d3ec6a773564fd02b33c8b2b0b7)
+---
+ src/compiler/nir/nir.c              |  3 ++-
+ src/compiler/nir/nir_control_flow.c | 18 ++++++++++++++++++
+ src/compiler/nir/nir_control_flow.h |  2 ++
+ 3 files changed, 22 insertions(+), 1 deletion(-)
+
+diff --git a/src/compiler/nir/nir.c b/src/compiler/nir/nir.c
+index 8373fcbfddd..8729ed6b6cc 100644
+--- a/src/compiler/nir/nir.c
++++ b/src/compiler/nir/nir.c
+@@ -1961,8 +1961,9 @@ nir_block_cf_tree_next(nir_block *block)
+    if (cf_next)
+       return nir_cf_node_cf_tree_first(cf_next);
+ 
++   /* parent might be NULL if this is an extracted cf node. */
+    nir_cf_node *parent = block->cf_node.parent;
+-   if (parent->type == nir_cf_node_function)
++   if (!parent || parent->type == nir_cf_node_function)
+       return NULL;
+ 
+    /* Is this the last block of a cf_node? Return the following block */
+diff --git a/src/compiler/nir/nir_control_flow.c b/src/compiler/nir/nir_control_flow.c
+index c5ad903dea3..2776ad385ae 100644
+--- a/src/compiler/nir/nir_control_flow.c
++++ b/src/compiler/nir/nir_control_flow.c
+@@ -957,3 +957,21 @@ nir_sort_unstructured_blocks(nir_function_impl *impl)
+    nir_progress(true, impl, nir_metadata_live_defs);
+    impl->valid_metadata |= nir_metadata_block_index;
+ }
++
++/**
++ * Removes any uses of SSA defs which might be outside the list. It does this
++ * by rematerializing derefs and inserting load/store register instructions.
++ */
++void
++nir_cf_list_detach_ssa(nir_cf_list *cf_list)
++{
++   foreach_list_typed(nir_cf_node, node, node, &cf_list->list) {
++      nir_foreach_block_in_cf_node(block, node) {
++         nir_foreach_instr_safe(instr, block) {
++            if (instr->type == nir_instr_type_deref)
++               nir_rematerialize_deref_in_use_blocks(nir_instr_as_deref(instr));
++         }
++         nir_lower_ssa_defs_to_regs_block(block);
++      }
++   }
++}
+diff --git a/src/compiler/nir/nir_control_flow.h b/src/compiler/nir/nir_control_flow.h
+index ac7444cb368..ecc44527be3 100644
+--- a/src/compiler/nir/nir_control_flow.h
++++ b/src/compiler/nir/nir_control_flow.h
+@@ -145,6 +145,8 @@ void nir_cf_delete(nir_cf_list *cf_list);
+ void nir_cf_list_clone(nir_cf_list *dst, nir_cf_list *src, nir_cf_node *parent,
+                        struct hash_table *remap_table);
+ 
++void nir_cf_list_detach_ssa(nir_cf_list *cf_list);
++
+ static inline void
+ nir_cf_list_clone_and_reinsert(nir_cf_list *src_list, nir_cf_node *parent,
+                                nir_cursor cursor,
+-- 
+2.54.0 (Apple Git-157)
+

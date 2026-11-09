@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Valentine Burley <valentine.burley@collabora.com>
+Date: Tue, 1 Sep 2026 08:46:19 +0200
+Subject: [PATCH] nir/lower_subgroups: Fix vote lowering with vector ballots
+
+nir_ieq_imm()/nir_ine_imm() return a vector boolean for multi-component
+ballots, while vote intrinsics require a scalar result.
+
+Reduce across the ballot components to ensure a scalar result.
+
+Fixes: 62a4fe861af ("nir: Add an option to lower quad vote")
+Signed-off-by: Valentine Burley <valentine.burley@collabora.com>
+Reviewed-by: Emma Anholt <anholt@igalia.com>
+(cherry picked from commit 0c334c0cf048cd8128e01da51df85a576ca42b8e)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit dc8e05ffc5ed2c47af66ec584a75d5191eab32af)
+---
+ src/compiler/nir/nir_lower_subgroups.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/compiler/nir/nir_lower_subgroups.c b/src/compiler/nir/nir_lower_subgroups.c
+index 9c92b6de3d8..66de5a989cf 100644
+--- a/src/compiler/nir/nir_lower_subgroups.c
++++ b/src/compiler/nir/nir_lower_subgroups.c
+@@ -1021,7 +1021,10 @@ build_vote(nir_builder *b, nir_def *src,
+       ballot = nir_iand(b, ballot, mask);
+    }
+ 
+-   return all ? nir_ieq_imm(b, ballot, 0) : nir_ine_imm(b, ballot, 0);
++   nir_def *zero = nir_imm_zero(b, options->ballot_components,
++                                options->ballot_bit_size);
++   return all ? nir_ball_iequal(b, ballot, zero)
++              : nir_bany_inequal(b, ballot, zero);
+ }
+ 
+ static nir_def *
+-- 
+2.54.0 (Apple Git-157)
+

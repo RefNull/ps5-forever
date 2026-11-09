@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Karol Herbst <kherbst@redhat.com>
+Date: Sun, 6 Sep 2026 12:00:49 +0200
+Subject: [PATCH] nir/serialize: set info.spec to NULL
+
+We have to clear the pointer to NULL otherwise we'll serialize the pointer
+value breaking shader cache key generation.
+
+Fixes: d8b21cc8ea6 ("vtn,nir: print shader filename and spec constants")
+Reviewed-by: Rob Clark <robclark@freedesktop.org>
+(cherry picked from commit c3b008c1ba01d455351b762253ef44c3ca19653f)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44489>
+(cherry picked from commit c4b4fbfa68a164330825fd385124d7e29e8dd67d)
+---
+ src/compiler/nir/nir_serialize.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/compiler/nir/nir_serialize.c b/src/compiler/nir/nir_serialize.c
+index 2095a2ae5e2..4934427ebe2 100644
+--- a/src/compiler/nir/nir_serialize.c
++++ b/src/compiler/nir/nir_serialize.c
+@@ -2229,7 +2229,7 @@ serialize_internal(struct blob *blob, const nir_shader *nir, bool strip, bool se
+       blob_write_string(blob, info.label);
+    if (!strip && info.spec)
+       blob_write_string(blob, info.spec);
+-   info.name = info.label = NULL;
++   info.name = info.label = info.spec = NULL;
+    blob_write_bytes(blob, (uint8_t *)&info, sizeof(info));
+ 
+    write_var_list(&ctx, &nir->variables);
+-- 
+2.54.0 (Apple Git-157)
+

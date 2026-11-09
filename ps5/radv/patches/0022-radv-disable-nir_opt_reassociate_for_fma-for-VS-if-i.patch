@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Georg Lehmann <dadschoorse@gmail.com>
+Date: Thu, 13 Aug 2026 20:06:07 +0200
+Subject: [PATCH] radv: disable nir_opt_reassociate_for_fma for VS if it's not
+ the last pre FS shader
+
+Invariant position doesn't cover generic VS outputs used
+to compute position in later stages.
+
+Foz-DB Navi48:
+Totals from 1382 (0.66% of 209079) affected shaders:
+MaxWaves: 39716 -> 39784 (+0.17%); split: +0.23%, -0.06%
+Instrs: 1073096 -> 1078247 (+0.48%); split: -0.01%, +0.49%
+CodeSize: 5312796 -> 5326488 (+0.26%); split: -0.04%, +0.30%
+VGPRs: 78816 -> 78252 (-0.72%); split: -0.76%, +0.05%
+Latency: 9499280 -> 9516170 (+0.18%); split: -0.01%, +0.18%
+InvThroughput: 1859682 -> 1863445 (+0.20%); split: -0.00%, +0.20%
+VClause: 14081 -> 14136 (+0.39%); split: -0.01%, +0.40%
+SClause: 15515 -> 15566 (+0.33%); split: -0.05%, +0.38%
+Copies: 74653 -> 74788 (+0.18%); split: -0.22%, +0.40%
+PreSGPRs: 53221 -> 53213 (-0.02%)
+PreVGPRs: 62840 -> 61985 (-1.36%); split: -1.38%, +0.02%
+VALU: 513364 -> 517815 (+0.87%); split: -0.01%, +0.88%
+SALU: 247709 -> 247755 (+0.02%); split: -0.00%, +0.02%
+
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16049
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16086
+Fixes: fb774cf7a1e ("radv: run nir_opt_reassociate_for_fma for VS/GS too")
+Reviewed-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 1a12d7188b46703d433f4d909b0e8e0d6c5bbe5d)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit 262d20beda1793715d53797be2169e8d3066c5e1)
+---
+ src/amd/vulkan/radv_shader.c | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/vulkan/radv_shader.c b/src/amd/vulkan/radv_shader.c
+index 311e5c70614..45e57580a07 100644
+--- a/src/amd/vulkan/radv_shader.c
++++ b/src/amd/vulkan/radv_shader.c
+@@ -282,7 +282,11 @@ radv_optimize_nir_algebraic_early(nir_shader *nir)
+ void
+ radv_optimize_nir_algebraic_late(nir_shader *nir)
+ {
+-   NIR_PASS(_, nir, nir_opt_reassociate_for_fma);
++   /* Invariant position doesn't cover generic VS outputs used
++    * to compute position in later stages.
++    */
++   if (nir->info.stage != MESA_SHADER_VERTEX || nir->info.next_stage == MESA_SHADER_FRAGMENT)
++      NIR_PASS(_, nir, nir_opt_reassociate_for_fma);
+ 
+    /* Do late algebraic optimization to turn add(a,
+     * neg(b)) back into subs, then the mandatory cleanup
+-- 
+2.54.0 (Apple Git-157)
+

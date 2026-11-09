@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Lionel Landwerlin <lionel.g.landwerlin@intel.com>
+Date: Mon, 13 Jul 2026 14:05:12 +0300
+Subject: [PATCH] vulkan/runtime: reindex internal bits
+
+New extensions have eaten those bits.
+
+Signed-off-by: Lionel Landwerlin <lionel.g.landwerlin@intel.com>
+Cc: mesa-stable
+Reviewed-by: Ivan Briano <ivan.briano@intel.com>
+(cherry picked from commit fa3add2979df393b9773eea73a3b9de97a22a0b1)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit 3e9596ec9c9f131879cc08ef0f911370cc2e986c)
+---
+ src/vulkan/util/vk_internal_exts.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/vulkan/util/vk_internal_exts.h b/src/vulkan/util/vk_internal_exts.h
+index d2bc167e1e3..c7a7374363b 100644
+--- a/src/vulkan/util/vk_internal_exts.h
++++ b/src/vulkan/util/vk_internal_exts.h
+@@ -143,8 +143,8 @@ static const VkPipelineCreateFlagBits2
+    VK_PIPELINE_CREATE_2_UNALIGNED_DISPATCH_BIT_MESA = 0x20000000000ull;
+ 
+ 
+-#define VK_SHADER_CREATE_CAPTURE_INTERNAL_REPRESENTATIONS_BIT_MESA 0x1000
+-#define VK_SHADER_CREATE_UNALIGNED_DISPATCH_BIT_MESA               0x2000
++#define VK_SHADER_CREATE_CAPTURE_INTERNAL_REPRESENTATIONS_BIT_MESA 0x00080000
++#define VK_SHADER_CREATE_UNALIGNED_DISPATCH_BIT_MESA               0x00100000
+ 
+ #ifdef __cplusplus
+ }
+-- 
+2.54.0 (Apple Git-157)
+

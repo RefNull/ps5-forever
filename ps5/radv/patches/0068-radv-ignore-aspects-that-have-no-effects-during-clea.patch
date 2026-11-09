@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Wed, 23 Sep 2026 08:49:00 +0200
+Subject: [PATCH] radv: ignore aspects that have no effects during clears
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Vulkan spec says:
+    "If any attachment’s aspectMask to be cleared is not backed by an
+    image view, the clear has no effect on that aspect."
+
+And the VUs about aspectMask in vkCmdClearAttachments() are only for
+legacy render passes.
+
+If the rendering only has a depth attachment, it's still allowed to
+pass DEPTH|STENCIL from vkCmdClearAttachments(). This caused an
+assertion in radv_layout_is_htile_compressed() because the stencil
+layout is UNDEFINED.
+
+This fixes new VKCTS coverage
+dEQP-VK.renderpasses.dynamic_rendering.*_clear_both_aspects.
+
+Cc: mesa-stable
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16377
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 2752b54feeed5bb6fc7d21982b4c8acab0d0e613)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit 4fd3f5adcb3f7f1dd24d78efb99e5e59dd402872)
+---
+ src/amd/vulkan/meta/radv_meta_clear.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/vulkan/meta/radv_meta_clear.c b/src/amd/vulkan/meta/radv_meta_clear.c
+index 83f327c67d4..eabd625ef03 100644
+--- a/src/amd/vulkan/meta/radv_meta_clear.c
++++ b/src/amd/vulkan/meta/radv_meta_clear.c
+@@ -1497,6 +1497,11 @@ emit_clear(struct radv_cmd_buffer *cmd_buffer, const VkClearAttachment *clear_at
+       if (ds_att->format == VK_FORMAT_UNDEFINED)
+          return;
+ 
++      /* Ignore aspects that have no effects. */
++      aspects &= render->ds_att_aspects;
++      if (!aspects)
++         return;
++
+       VkClearDepthStencilValue clear_value = clear_att->clearValue.depthStencil;
+ 
+       assert(aspects & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT));
+@@ -1516,10 +1521,10 @@ emit_clear(struct radv_cmd_buffer *cmd_buffer, const VkClearAttachment *clear_at
+       }
+ 
+       if (can_fast_clear_depth && can_fast_clear_stencil) {
+-         radv_fast_clear_depth(cmd_buffer, ds_att->iview, clear_att->clearValue.depthStencil, clear_att->aspectMask,
++         radv_fast_clear_depth(cmd_buffer, ds_att->iview, clear_att->clearValue.depthStencil, aspects,
+                                pre_flush, post_flush);
+       } else if (!can_fast_clear_depth && !can_fast_clear_stencil) {
+-         emit_depthstencil_clear(cmd_buffer, clear_att->clearValue.depthStencil, clear_att->aspectMask, clear_rect,
++         emit_depthstencil_clear(cmd_buffer, clear_att->clearValue.depthStencil, aspects, clear_rect,
+                                  view_mask);
+       } else {
+          if (can_fast_clear_depth) {
+-- 
+2.54.0 (Apple Git-157)
+

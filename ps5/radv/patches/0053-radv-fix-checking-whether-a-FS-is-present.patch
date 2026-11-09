@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Marek=20Ol=C5=A1=C3=A1k?= <maraeo@gmail.com>
+Date: Thu, 17 Sep 2026 11:41:05 -0400
+Subject: [PATCH] radv: fix checking whether a FS is present
+
+likely no effect on behavior because all the info fields are not set
+when FS is absent
+
+Fixes: e45e9e136c9eb37e - radv: remove the VRS rate output if VRS flat shading overrides it
+
+Reviewed-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 3e7549d1a2fedaba560b56a91d73f16d54bfbef9)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit 0209c5a8b13be721e3a6c281924e03dac1eb74aa)
+Forever: conflict resolved by taking upstream's condition; its extra force_vrs_per_vertex term only skips clearing a flag that is already false.
+---
+ src/amd/vulkan/radv_pipeline_graphics.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_pipeline_graphics.c b/src/amd/vulkan/radv_pipeline_graphics.c
+index 817bdd88713..a033464049b 100644
+--- a/src/amd/vulkan/radv_pipeline_graphics.c
++++ b/src/amd/vulkan/radv_pipeline_graphics.c
+@@ -2799,7 +2799,7 @@ radv_graphics_shaders_compile(const struct radv_compiler_info *compiler_info, st
+ 
+       struct radv_shader_stage *fs_stage = &stages[MESA_SHADER_FRAGMENT];
+ 
+-      if (fs_stage && (fs_stage->info.ps.allow_flat_shading || fs_stage->info.ps.force_disable_vrs)) {
++      if (fs_stage->nir && (fs_stage->info.ps.allow_flat_shading || fs_stage->info.ps.force_disable_vrs)) {
+          stages[i].info.force_vrs_per_vertex = false;
+ 
+          if (stages[i].info.outinfo.writes_primitive_shading_rate ||
+@@ -2811,7 +2811,8 @@ radv_graphics_shaders_compile(const struct radv_compiler_info *compiler_info, st
+             stages[i].nir->info.outputs_written &= ~VARYING_BIT_PRIMITIVE_SHADING_RATE;
+             stages[i].nir->info.per_primitive_outputs &= ~VARYING_BIT_PRIMITIVE_SHADING_RATE;
+          }
+-      } else if (fs_stage && fs_stage->info.ps.disallow_force_vrs_per_vertex) {
++      } else if (fs_stage->nir && fs_stage->info.ps.disallow_force_vrs_per_vertex &&
++                 stages[i].info.force_vrs_per_vertex) {
+          stages[i].info.force_vrs_per_vertex = false;
+       }
+       break;
+-- 
+2.54.0 (Apple Git-157)
+

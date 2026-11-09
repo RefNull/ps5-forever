@@ -1,0 +1,46 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Timur=20Krist=C3=B3f?= <timur.kristof@gmail.com>
+Date: Fri, 31 Jul 2026 12:52:39 +0200
+Subject: [PATCH] ac/nir/clear_copy_buffer: Fix last thread byte count
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Use modulo division of bytes per thread instead of 4.
+
+For example when we are doing a copy of 4 bytes and the number
+of dwords per thread is set to 2 (8 bytes per thread), we need
+to copy those 4 bytes on the last thread.
+
+This fixes some Vulkan CTS test failures when using this meta
+shader with RADV. (Although RADV doesn't use this shader
+yet, it's important to fix this bug before it does.)
+
+Cc: mesa-stable
+Signed-off-by: Timur Kristóf <timur.kristof@gmail.com>
+Reviewed-by: Marek Olšák <maraeo@gmail.com>
+Reviewed-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit ecc2d55a1bfadc24810cc9347821182dc8d94027)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit f2cc4a455bac75e1533446c1e0786037eeb4d6a7)
+---
+ src/amd/common/nir/ac_nir_meta_cs_clear_copy_buffer.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/amd/common/nir/ac_nir_meta_cs_clear_copy_buffer.c b/src/amd/common/nir/ac_nir_meta_cs_clear_copy_buffer.c
+index 9702ce7e1d3..27b2d546ff8 100644
+--- a/src/amd/common/nir/ac_nir_meta_cs_clear_copy_buffer.c
++++ b/src/amd/common/nir/ac_nir_meta_cs_clear_copy_buffer.c
+@@ -587,7 +587,7 @@ ac_prepare_cs_clear_copy_buffer(const struct ac_cs_clear_copy_buffer_options *op
+    out->shader_key.src_align_offset = src_align_offset;
+    out->shader_key.dst_align_offset = dst_align_offset;
+ 
+-   if ((dst_align_offset + info->size) % 4)
++   if ((dst_align_offset + info->size) % (dwords_per_thread * 4))
+       out->shader_key.dst_last_thread_bytes = (dst_align_offset + info->size) % (dwords_per_thread * 4);
+ 
+    unsigned num_threads = DIV_ROUND_UP(dst_align_offset + info->size, dwords_per_thread * 4);
+-- 
+2.54.0 (Apple Git-157)
+

@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rhys Perry <pendingchaos02@gmail.com>
+Date: Wed, 5 Aug 2026 11:44:50 +0100
+Subject: [PATCH] nir/simplify_loops: fix predication of an empty cf list
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Signed-off-by: Rhys Perry <pendingchaos02@gmail.com>
+Fixes: 31af989270f ("nir/lower_continue_constructs: Simplify loops before lowering continue constructs")
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+Reviewed-by: Daniel Schürmann <daniel@schuermann.dev>
+(cherry picked from commit 4bc7286d17ee7454e3ee0ea45036cd2cf368a965)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit b63d28b3994a4ce179df550a904fbe34cbfaa356)
+---
+ src/compiler/nir/nir_lower_continue_constructs.c | 12 +++++++-----
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/src/compiler/nir/nir_lower_continue_constructs.c b/src/compiler/nir/nir_lower_continue_constructs.c
+index 7a5df7d528f..35f2d447ddc 100644
+--- a/src/compiler/nir/nir_lower_continue_constructs.c
++++ b/src/compiler/nir/nir_lower_continue_constructs.c
+@@ -162,12 +162,14 @@ lower_jumps_in_if(nir_if *nif, struct loop_simplify_state *state)
+       if (nif->cf_node.parent != &state->loop->cf_node)
+          nir_cf_list_detach_ssa(&list);
+ 
+-      state->b->cursor = nir_after_cf_node_and_phis(&nif->cf_node);
+-      nir_if *if_stmt = nir_push_if(state->b, nir_load_reg(state->b, state->jump_flag));
++      /* The list might be empty if the only instructions at the merge block are phis. */
++      if (!exec_list_is_empty(&list.list)) {
++         state->b->cursor = nir_after_cf_node_and_phis(&nif->cf_node);
++         nir_if *if_stmt = nir_push_if(state->b, nir_load_reg(state->b, state->jump_flag));
+ 
+-      assert(!exec_list_is_empty(&list.list));
+-      nir_cf_reinsert(&list, nir_before_cf_list(&if_stmt->else_list));
+-      nir_pop_if(state->b, NULL);
++         nir_cf_reinsert(&list, nir_before_cf_list(&if_stmt->else_list));
++         nir_pop_if(state->b, NULL);
++      }
+    }
+ 
+    return progress;
+-- 
+2.54.0 (Apple Git-157)
+

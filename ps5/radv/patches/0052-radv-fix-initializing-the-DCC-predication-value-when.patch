@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Thu, 17 Sep 2026 11:04:14 +0200
+Subject: [PATCH] radv: fix initializing the DCC predication value when stores
+ aren't supported
+
+When the source image layout is ZERO_INITIALIZED.
+
+This was causing RADV to ignore some DCC decompressions because the
+image wasn't considered compressed.
+
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16304
+Fixes: 7d03a1fc5bb ("radv: skip some operations when the image is already zero-initialized")
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 79025b549244345322ac3bbb1774bf294275c085)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit 48c94864ac9ebfb1fa06b4f9ad5eeb5a5ac44a63)
+---
+ src/amd/vulkan/radv_cmd_buffer.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/amd/vulkan/radv_cmd_buffer.c b/src/amd/vulkan/radv_cmd_buffer.c
+index f475d8d4671..58917975b10 100644
+--- a/src/amd/vulkan/radv_cmd_buffer.c
++++ b/src/amd/vulkan/radv_cmd_buffer.c
+@@ -16968,7 +16968,7 @@ radv_init_color_image_metadata(struct radv_cmd_buffer *cmd_buffer, struct radv_i
+ 
+    /* Skip redundant operations when the image is already zero-initialized. */
+    if (src_layout == VK_IMAGE_LAYOUT_ZERO_INITIALIZED_EXT) {
+-      need_dcc_init = dcc_init_value != DCC_CLEAR_0000;
++      need_dcc_init = dcc_init_value != DCC_CLEAR_0000 || radv_image_use_dcc_predication(device, image);
+       need_metadata_init = false;
+    }
+ 
+-- 
+2.54.0 (Apple Git-157)
+

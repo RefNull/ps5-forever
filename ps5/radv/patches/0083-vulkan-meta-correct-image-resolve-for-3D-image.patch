@@ -1,0 +1,67 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Erik Faye-Lund <erik.faye-lund@arm.com>
+Date: Fri, 16 Oct 2026 16:00:32 +0200
+Subject: [PATCH] vulkan/meta: correct image-resolve for 3D image
+
+When resolving attachments into 3D images, we need to adjust
+dstOffset.z instead of the baseArrayLayer.
+
+This was a latent bug, that happened to work out because PanVK preserved
+baseArrayLayer, even if that's actually illegal in Vulkan according to
+VUID-VkImageCreateInfo-imageType-00961. This changed in 39a857312aee
+("pan/texture: Reuse the layer range as a Z-slice range on 3D views"),
+and we started actually misbehaving.
+
+Fixes this VK-CTS test on PanVK:
+- dEQP-VK.renderpasses.renderpass1.suballocation.multisample_resolve.resolve_into_3d_image.render_pass_resolve_3_1_1_0
+
+Fixes: 39a857312aee ("pan/texture: Reuse the layer range as a Z-slice range on 3D views")
+Fixes: 1a94c556326f ("vulkan/meta: Add support for MSAA resolves")
+Reviewed-by: Faith Ekstrand <faith.ekstrand@collabora.com>
+(cherry picked from commit 2c0adfd4a19d62d98ac255ea88753a35c109eb60)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45704>
+(cherry picked from commit a5495156bc8e0094b630beb7648e892f9d2ad738)
+---
+ src/vulkan/runtime/vk_meta_blit_resolve.c | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/src/vulkan/runtime/vk_meta_blit_resolve.c b/src/vulkan/runtime/vk_meta_blit_resolve.c
+index 2d74d369e0e..e4ea43abf33 100644
+--- a/src/vulkan/runtime/vk_meta_blit_resolve.c
++++ b/src/vulkan/runtime/vk_meta_blit_resolve.c
+@@ -1,5 +1,6 @@
+ /*
+  * Copyright © 2022 Collabora Ltd
++ * Copyright © 2026 Arm Ltd
+  *
+  * Permission is hereby granted, free of charge, to any person obtaining a
+  * copy of this software and associated documentation files (the "Software"),
+@@ -1023,7 +1024,11 @@ vk_meta_resolve_attachment(struct vk_command_buffer *cmd,
+       u_foreach_bit(v, view_mask) {
+          region.srcSubresource.baseArrayLayer = src_view->base_array_layer + v;
+          region.srcSubresource.layerCount = 1;
+-         region.dstSubresource.baseArrayLayer = dst_view->base_array_layer + v;
++         uint32_t dst_layer = src_view->base_array_layer + v;
++         if (dst_view->image->image_type == VK_IMAGE_TYPE_3D)
++            region.dstOffset.z = dst_layer;
++         else
++            region.dstSubresource.baseArrayLayer = dst_layer;
+          region.dstSubresource.layerCount = 1;
+ 
+          vk_meta_resolve_image(cmd, meta,
+@@ -1034,7 +1039,10 @@ vk_meta_resolve_attachment(struct vk_command_buffer *cmd,
+    } else {
+       region.srcSubresource.baseArrayLayer = src_view->base_array_layer;
+       region.srcSubresource.layerCount = layer_count;
+-      region.dstSubresource.baseArrayLayer = dst_view->base_array_layer;
++      if (dst_view->image->image_type == VK_IMAGE_TYPE_3D)
++         region.dstOffset.z = dst_view->base_array_layer;
++      else
++         region.dstSubresource.baseArrayLayer = dst_view->base_array_layer;
+       region.dstSubresource.layerCount = layer_count;
+ 
+       vk_meta_resolve_image(cmd, meta,
+-- 
+2.54.0 (Apple Git-157)
+

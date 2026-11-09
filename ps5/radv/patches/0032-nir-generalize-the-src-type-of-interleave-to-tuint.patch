@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Perretta <simon.perretta@imgtec.com>
+Date: Mon, 22 Jun 2026 07:32:07 +0100
+Subject: [PATCH] nir: generalize the src type of interleave to tuint
+
+The lowest 16 bits are used regardless of whether the underlying op uses
+a 16-bit or 32-bit src.
+
+Signed-off-by: Simon Perretta <simon.perretta@imgtec.com>
+Reviewed-by: Ella Stanforth <ella@igalia.com>
+(cherry picked from commit d96de9e60f32ef5f3203943a3ad6fdd832b5994a)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44168>
+(cherry picked from commit b855187245aa0b60fe1703ceadea89c008441925)
+---
+ src/compiler/nir/nir_opcodes.py | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/compiler/nir/nir_opcodes.py b/src/compiler/nir/nir_opcodes.py
+index 5541d5fb184..9ed2fc739a5 100644
+--- a/src/compiler/nir/nir_opcodes.py
++++ b/src/compiler/nir/nir_opcodes.py
+@@ -1621,11 +1621,11 @@ opcode("bounds_agx", 0, tint, [0, 0, 0],
+        [tint, tint, tint], False,
+        "", "src1 <= src2 ? src0 : 0")
+ 
+-binop_convert("interleave", tuint32, tuint16, "", """
++binop_convert("interleave", tuint32, tuint, "", """
+       dst = 0;
+       for (unsigned bit = 0; bit < 16; bit++) {
+-          dst |= (src0 & (1 << bit)) << bit;
+-          dst |= (src1 & (1 << bit)) << (bit + 1);
++          dst |= ((uint32_t)src0 & (1 << bit)) << bit;
++          dst |= ((uint32_t)src1 & (1 << bit)) << (bit + 1);
+       }""", description="""
+       Interleave bits of 16-bit integers to calculate a 32-bit integer. This can
+       be used as-is for Morton encoding.
+-- 
+2.54.0 (Apple Git-157)
+

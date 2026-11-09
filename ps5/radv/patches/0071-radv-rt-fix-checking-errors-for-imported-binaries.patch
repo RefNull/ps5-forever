@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Wed, 23 Sep 2026 12:01:23 +0200
+Subject: [PATCH] radv/rt: fix checking errors for imported binaries
+
+It was silently skipped.
+
+Found by inspection.
+
+Fixes: b4d6d88c6b4 ("radv: add support for importing pipeline binaries")
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 96009bf70c4234f12cf299bf2c025b9e7da657e2)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45215>
+(cherry picked from commit 6ac7b4edacdb498c849d9ed16db1291bc93372d6)
+---
+ src/amd/vulkan/radv_pipeline_rt.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_pipeline_rt.c b/src/amd/vulkan/radv_pipeline_rt.c
+index 017bc3bb03c..986def2fa71 100644
+--- a/src/amd/vulkan/radv_pipeline_rt.c
++++ b/src/amd/vulkan/radv_pipeline_rt.c
+@@ -1387,10 +1387,11 @@ radv_rt_pipeline_create(VkDevice _device, VkPipelineCache _cache, const VkRayTra
+    } else {
+       result = radv_rt_pipeline_compile(device, pCreateInfo, pipeline, cache, &rt_state, capture_replay_blocks,
+                                         creation_feedback);
+-      if (result != VK_SUCCESS)
+-         goto fail;
+    }
+ 
++   if (result != VK_SUCCESS)
++      goto fail;
++
+    if (!(pipeline->base.base.create_flags & VK_PIPELINE_CREATE_2_LIBRARY_BIT_KHR)) {
+       compute_rt_stack_size(pCreateInfo, pipeline);
+       compile_rt_prolog(device, pipeline);
+-- 
+2.54.0 (Apple Git-157)
+

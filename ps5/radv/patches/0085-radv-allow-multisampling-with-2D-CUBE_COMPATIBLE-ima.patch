@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Wed, 12 Aug 2026 16:20:16 +0200
+Subject: [PATCH] radv: allow multisampling with 2D CUBE_COMPATIBLE images with
+ MSRTSS
+
+The spec has been updated to allow this.
+
+This fixes
+RADV_EXPERIMENTAL=msrtss ./deqp-vk -n
+dEQP-VK.pipeline.*.multisample.multisampled_render_to_single_sampled.*.default_cubemap.
+
+Fixes: 122eed44ca8 ("radv: enable VK_EXT_multisampled_render_to_single_sampled")
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit e78ccfa6999eb16adbea9128ef3f08adda9de5e1)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45704>
+(cherry picked from commit c928c34ae0d2a6d48cc23ae91416be07cb56b822)
+---
+ src/amd/vulkan/radv_formats.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/vulkan/radv_formats.c b/src/amd/vulkan/radv_formats.c
+index df7cf9a7e16..e67c7ab9321 100644
+--- a/src/amd/vulkan/radv_formats.c
++++ b/src/amd/vulkan/radv_formats.c
+@@ -1016,7 +1016,8 @@ radv_get_image_format_properties(struct radv_physical_device *pdev, const VkPhys
+    if (tiling == VK_IMAGE_TILING_OPTIMAL && info->type == VK_IMAGE_TYPE_2D &&
+        (format_feature_flags &
+         (VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT)) &&
+-       !(image_flags & VK_IMAGE_CREATE_2_CUBE_COMPATIBLE_BIT_KHR) &&
++       (!(image_flags & VK_IMAGE_CREATE_2_CUBE_COMPATIBLE_BIT_KHR) ||
++        (image_flags & VK_IMAGE_CREATE_2_MULTISAMPLED_RENDER_TO_SINGLE_SAMPLED_BIT_EXT)) &&
+        !(image_usage & VK_IMAGE_USAGE_2_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR)) {
+       sampleCounts |= VK_SAMPLE_COUNT_2_BIT | VK_SAMPLE_COUNT_4_BIT | VK_SAMPLE_COUNT_8_BIT;
+    }
+-- 
+2.54.0 (Apple Git-157)
+

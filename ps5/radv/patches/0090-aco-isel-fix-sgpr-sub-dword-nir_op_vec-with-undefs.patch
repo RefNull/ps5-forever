@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Georg Lehmann <dadschoorse@gmail.com>
+Date: Thu, 22 Oct 2026 19:17:09 +0200
+Subject: [PATCH] aco/isel: fix sgpr sub dword nir_op_vec with undefs
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The default constructor is Temp(0, s0), and the non use_s_pack path never replaced
+that, causing validation failures for vectors where a whole dword is undef.
+
+Cc: mesa-stable
+Reviewed-by: Timur Kristóf <timur.kristof@gmail.com>
+(cherry picked from commit 4f64fb17129a846b72fcad0175eea6db937294a6)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45704>
+(cherry picked from commit 185bec4ba561bd140b587aba14df648ec6722192)
+---
+ .../compiler/instruction_selection/aco_select_nir_alu.cpp  | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/compiler/instruction_selection/aco_select_nir_alu.cpp b/src/amd/compiler/instruction_selection/aco_select_nir_alu.cpp
+index 1377b18ef06..5ed57e80812 100644
+--- a/src/amd/compiler/instruction_selection/aco_select_nir_alu.cpp
++++ b/src/amd/compiler/instruction_selection/aco_select_nir_alu.cpp
+@@ -831,10 +831,13 @@ visit_alu_instr(isel_context* ctx, nir_alu_instr* instr)
+             unsigned packed_size = use_s_pack ? 16 : 32;
+             unsigned idx = i * instr->def.bit_size / packed_size;
+             unsigned offset = i * instr->def.bit_size % packed_size;
+-            if (nir_src_is_undef(instr->src[i].src))
++            if (nir_src_is_undef(instr->src[i].src)) {
++               if (offset == 0)
++                  packed[idx] = Temp(0, s1);
+                continue;
+-            else
++            } else {
+                undef_mask[idx] = false;
++            }
+ 
+             if (nir_src_is_const(instr->src[i].src)) {
+                const_vals[idx] |= nir_src_as_uint(instr->src[i].src) << offset;
+-- 
+2.54.0 (Apple Git-157)
+

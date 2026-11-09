@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Thu, 17 Sep 2026 18:10:34 +0200
+Subject: [PATCH] radv: do not abort when the app specifies an invalid modifier
+
+Better to just return an unknown error with a message.
+
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 386055e53632ff66de183ea457198e40c9c39dc7)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit 055f2412d7358f28ee2ea8ae4ccb23fab3690f32)
+---
+ src/amd/vulkan/radv_image.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_image.c b/src/amd/vulkan/radv_image.c
+index 2cb4ab5d552..f3f8e069fa2 100644
+--- a/src/amd/vulkan/radv_image.c
++++ b/src/amd/vulkan/radv_image.c
+@@ -1439,7 +1439,9 @@ radv_select_modifier(const struct radv_device *dev, VkFormat format,
+          }
+       }
+    }
+-   UNREACHABLE("App specified an invalid modifier");
++
++   free(mods);
++   return VK_ERROR_UNKNOWN;
+ }
+ 
+ VkResult
+@@ -1493,7 +1495,7 @@ radv_image_create(VkDevice _device, const struct radv_image_create_info *create_
+       result = radv_select_modifier(device, format, mod_list, &modifier);
+       if (result != VK_SUCCESS) {
+          radv_destroy_image(device, alloc, image);
+-         return vk_error(device, result);
++         return vk_errorf(device, result, "Invalid modifier specified");
+       }
+    } else if (explicit_mod) {
+       modifier = explicit_mod->drmFormatModifier;
+-- 
+2.54.0 (Apple Git-157)
+

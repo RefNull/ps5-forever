@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Omar Rashwan <omar.rashwan@intel.com>
+Date: Mon, 5 Oct 2026 10:17:39 -0700
+Subject: [PATCH] nir/instr_set: compare tex dest_type instead of bit size when
+ CSEing texture instructions
+
+Check for differing types to ensure instructions are the same.
+
+Backport-to: 26.1
+Signed-off-by: Omar Rashwan <omar.rashwan@intel.com>
+Reviewed-by: Lionel Landwerlin <lionel.g.landwerlin@intel.com>
+(cherry picked from commit 9ce7a2ef35ae1ab06e024860a0f247962ab11b95)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45215>
+(cherry picked from commit 973020874f94b80d08a0c3b0a63b609523ac6cb5)
+---
+ src/compiler/nir/nir_instr_set.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/compiler/nir/nir_instr_set.c b/src/compiler/nir/nir_instr_set.c
+index 7645b55c096..162b3470ca9 100644
+--- a/src/compiler/nir/nir_instr_set.c
++++ b/src/compiler/nir/nir_instr_set.c
+@@ -332,11 +332,11 @@ hash_tex(uint32_t hash, const nir_tex_instr *instr)
+    uint32_t texture_index = instr->texture_index;
+    uint32_t sampler_index = instr->sampler_index;
+    uint32_t backend_flags = instr->backend_flags;
+-   uint32_t def = (instr->def.num_components << 8) | instr->def.bit_size;
++   uint32_t dest = (instr->def.num_components << 8) | instr->dest_type;
+    memcpy(v + 12, &texture_index, 4);
+    memcpy(v + 16, &sampler_index, 4);
+    memcpy(v + 20, &backend_flags, 4);
+-   memcpy(v + 24, &def, 4);
++   memcpy(v + 24, &dest, 4);
+    hash = XXH32(v, sizeof(v), hash);
+ 
+    for (unsigned i = 0; i < instr->num_srcs; i++)
+@@ -709,7 +709,7 @@ nir_instrs_equal(const nir_instr *instr1, const nir_instr *instr2)
+           tex1->sampler_index != tex2->sampler_index ||
+           tex1->backend_flags != tex2->backend_flags ||
+           tex1->def.num_components != tex2->def.num_components ||
+-          tex1->def.bit_size != tex2->def.bit_size)
++          tex1->dest_type != tex2->dest_type)
+          return false;
+ 
+       return true;
+-- 
+2.54.0 (Apple Git-157)
+

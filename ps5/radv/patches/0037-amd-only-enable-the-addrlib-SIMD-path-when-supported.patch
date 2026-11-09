@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Tue, 1 Sep 2026 10:06:04 +0200
+Subject: [PATCH] amd: only enable the addrlib SIMD path when supported
+
+Only x86 and Aarch64 (NEON).
+
+Fixes: aea04d11b7d ("amd: allow addrlib to enable SIMD if possible")
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16193
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit c1b61849bed6b1fe53cd1184be3b68a56622a390)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44168>
+(cherry picked from commit d342c48ad54cd7fb792b3d18f5806e22af722ddd)
+---
+ src/amd/addrlib/meson.build | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/addrlib/meson.build b/src/amd/addrlib/meson.build
+index 4f673b43a20..35ac56890be 100644
+--- a/src/amd/addrlib/meson.build
++++ b/src/amd/addrlib/meson.build
+@@ -49,7 +49,12 @@ files_addrlib = files(
+ )
+ 
+ # Skip the addrlib definition of ADDR_FASTCALL so as not to use regparm.
+-cpp_args_addrlib = ['-DADDR_FASTCALL=', '-DADDR_ALLOW_SIMD=1']
++cpp_args_addrlib = ['-DADDR_FASTCALL=']
++
++# The SIMD path in addrlib only supports x86 and Aarch64 (NEON).
++if host_machine.cpu_family() in ['x86', 'x86_64', 'aarch64']
++  cpp_args_addrlib += '-DADDR_ALLOW_SIMD=1'
++endif
+ 
+ if host_machine.endian() == 'little'
+   cpp_args_addrlib += '-DLITTLEENDIAN_CPU'
+-- 
+2.54.0 (Apple Git-157)
+

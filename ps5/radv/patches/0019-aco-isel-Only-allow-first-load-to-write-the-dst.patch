@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Timur=20Krist=C3=B3f?= <timur.kristof@gmail.com>
+Date: Fri, 31 Jul 2026 11:52:33 +0200
+Subject: [PATCH] aco/isel: Only allow first load to write the dst
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+For example, it can happen that we want to load 8 bytes from
+an unaligned address. In this case we want to emit two loads:
+
+(1) 1 byte from an unaligned address
+(2) 7 bytes from an aligned address
+
+The second load will select buffer_load_dwordx2 whose destination
+register class matches that of the destination, so the MUBUF load
+callback chooses to write the destination with the second load,
+which is incorrect.
+
+Instead, after the first load is emitted, change the info passed
+to the callback to have an empty Temp() to prevent it from
+writing the actual destination.
+
+Cc: mesa-stable
+Signed-off-by: Timur Kristóf <timur.kristof@gmail.com>
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+(cherry picked from commit 73a5152ba0e0ef1d03cbb57e3062604c24ee88c9)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit 82f192038fd875bed390172e28b4a3d0da9a4160)
+---
+ .../instruction_selection/aco_select_nir_intrinsics.cpp       | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/amd/compiler/instruction_selection/aco_select_nir_intrinsics.cpp b/src/amd/compiler/instruction_selection/aco_select_nir_intrinsics.cpp
+index feb6db505fe..60f37ead186 100644
+--- a/src/amd/compiler/instruction_selection/aco_select_nir_intrinsics.cpp
++++ b/src/amd/compiler/instruction_selection/aco_select_nir_intrinsics.cpp
+@@ -344,6 +344,10 @@ emit_load(isel_context* ctx, Builder& bld, const LoadEmitInfo& info,
+       new_info.offset = Operand(as_temp(bld, offset));
+       new_info.const_offset = reduced_const_offset;
+ 
++      /* If we split the load, prevent the callback from writing to dst directly */
++      if (num_vals)
++         new_info.dst = Temp();
++
+       unsigned align = align_offset ? 1 << (ffs(align_offset) - 1) : align_mul;
+ 
+       Temp val = params.callback(bld, new_info, bytes_needed, align);
+-- 
+2.54.0 (Apple Git-157)
+

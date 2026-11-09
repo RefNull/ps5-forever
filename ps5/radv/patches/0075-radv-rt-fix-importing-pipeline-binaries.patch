@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Fri, 25 Sep 2026 11:27:24 +0200
+Subject: [PATCH] radv/rt: fix importing pipeline binaries
+
+For RT pipeline binaries, the shader and the NIR are stored one after
+the other and there is no way to know the end. Fix this by storing
+the shader/NIR sizes before deserializing.
+
+Fixes: 64b4cb001c3 ("radv: cache shader IR, asm and spir-v")
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 74b69717c52b73494200e11e2dd97aa346d552dd)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45215>
+(cherry picked from commit cf77b21f4522d2b03668257256d98a06abf3f250)
+---
+ src/amd/vulkan/radv_pipeline_binary.c |  6 ++++-
+ src/amd/vulkan/radv_pipeline_rt.c     | 34 ++++++++++++++-------------
+ 2 files changed, 23 insertions(+), 17 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_pipeline_binary.c b/src/amd/vulkan/radv_pipeline_binary.c
+index 8c0d691d9c8..91749037d22 100644
+--- a/src/amd/vulkan/radv_pipeline_binary.c
++++ b/src/amd/vulkan/radv_pipeline_binary.c
+@@ -222,10 +222,14 @@ radv_create_pipeline_binary_from_rt_shader(struct radv_device *device, const VkA
+ 
+    blob_init(&blob);
+    blob_write_bytes(&blob, &header, sizeof(header));
+-   if (header.has_shader)
++   if (header.has_shader) {
++      size_t shader_size_offset = blob_reserve_uint32(&blob);
+       radv_shader_serialize(shader, &blob);
++      blob_overwrite_uint32(&blob, shader_size_offset, blob.size - shader_size_offset - 4);
++   }
+    if (header.has_nir) {
+       struct vk_raw_data_cache_object *nir_object = container_of(nir, struct vk_raw_data_cache_object, base);
++      blob_write_uint32(&blob, nir_object->data_size);
+       blob_write_bytes(&blob, nir_object->data, nir_object->data_size);
+    }
+    blob_finish_get_buffer(&blob, &data, &data_size);
+diff --git a/src/amd/vulkan/radv_pipeline_rt.c b/src/amd/vulkan/radv_pipeline_rt.c
+index 986def2fa71..8b50354bac5 100644
+--- a/src/amd/vulkan/radv_pipeline_rt.c
++++ b/src/amd/vulkan/radv_pipeline_rt.c
+@@ -1296,32 +1296,34 @@ radv_ray_tracing_pipeline_import_binary(struct radv_device *device, struct radv_
+       const struct radv_ray_tracing_binary_header *header =
+          (const struct radv_ray_tracing_binary_header *)blob_read_bytes(&blob, sizeof(*header));
+ 
+-      if (header->is_traversal_shader) {
+-         shader = radv_shader_deserialize(device, pipeline_binary->key, sizeof(pipeline_binary->key), &blob);
++      if (header->has_shader || header->is_traversal_shader) {
++         uint32_t shader_size = blob_read_uint32(&blob);
++         const void *shader_data = blob_read_bytes(&blob, shader_size);
++         struct blob_reader shader_blob;
++         blob_reader_init(&shader_blob, shader_data, shader_size);
++         shader = radv_shader_deserialize(device, pipeline_binary->key, sizeof(pipeline_binary->key), &shader_blob);
+          if (!shader)
+             return VK_ERROR_OUT_OF_DEVICE_MEMORY;
+ 
+-         pipeline->base.base.shaders[MESA_SHADER_INTERSECTION] = shader;
+-
+          _mesa_blake3_update(&ctx, pipeline_binary->key, sizeof(pipeline_binary->key));
+-         continue;
+-      }
+-
+-      memcpy(&pipeline->stages[i].info, &header->stage_info, sizeof(pipeline->stages[i].info));
+-      pipeline->stages[i].stack_size = header->stack_size;
+ 
+-      if (header->has_shader) {
+-         shader = radv_shader_deserialize(device, pipeline_binary->key, sizeof(pipeline_binary->key), &blob);
+-         if (!shader)
+-            return VK_ERROR_OUT_OF_DEVICE_MEMORY;
++         if (header->is_traversal_shader) {
++            pipeline->base.base.shaders[MESA_SHADER_INTERSECTION] = shader;
++            continue;
++         }
+ 
+          pipeline->stages[i].shader = shader;
+-
+-         _mesa_blake3_update(&ctx, pipeline_binary->key, sizeof(pipeline_binary->key));
+       }
+ 
++      memcpy(&pipeline->stages[i].info, &header->stage_info, sizeof(pipeline->stages[i].info));
++      pipeline->stages[i].stack_size = header->stack_size;
++
+       if (header->has_nir) {
+-         nir_shader *nir = nir_deserialize(NULL, NULL, &blob);
++         uint32_t nir_size = blob_read_uint32(&blob);
++         const void *nir_data = blob_read_bytes(&blob, nir_size);
++         struct blob_reader nir_blob;
++         blob_reader_init(&nir_blob, nir_data, nir_size);
++         nir_shader *nir = nir_deserialize(NULL, NULL, &nir_blob);
+ 
+          pipeline->stages[i].nir = radv_pipeline_cache_nir_to_handle(device, NULL, nir, header->stage_blake3, false);
+          ralloc_free(nir);
+-- 
+2.54.0 (Apple Git-157)
+

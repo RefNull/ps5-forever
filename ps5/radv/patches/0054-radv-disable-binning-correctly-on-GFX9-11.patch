@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Wed, 16 Sep 2026 14:46:34 +0200
+Subject: [PATCH] radv: disable binning correctly on GFX9-11
+
+When it's explicitly disabled with RADV_DEBUG=nobinning.
+
+Cc: mesa-stable
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 0cf004a362736b18b8992b0d8710315bbe3fc5d2)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit 05cf808ac9a7caefcae60d68e1980c9dafcf273d)
+---
+ src/amd/vulkan/radv_cmd_buffer.c | 8 +++-----
+ 1 file changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_cmd_buffer.c b/src/amd/vulkan/radv_cmd_buffer.c
+index 58917975b10..776a02bbbec 100644
+--- a/src/amd/vulkan/radv_cmd_buffer.c
++++ b/src/amd/vulkan/radv_cmd_buffer.c
+@@ -2690,8 +2690,6 @@ radv_get_disabled_binning_state(struct radv_cmd_buffer *cmd_buffer)
+          S_028C44_BIN_SIZE_Y_EXTEND(util_logbase2(bin_size_y) - 5) | S_028C44_DISABLE_START_OF_PRIM(1) |
+          S_028C44_FPOVS_PER_BATCH(63) | S_028C44_OPTIMAL_BIN_SELECTION(1) | S_028C44_FLUSH_ON_BINNING_TRANSITION(1);
+    } else if (pdev->info.gfx_level >= GFX10) {
+-      const unsigned binning_disabled =
+-         pdev->info.gfx_level >= GFX11_5 ? V_028C44_BINNING_DISABLED : V_028C44_DISABLE_BINNING_USE_NEW_SC;
+       unsigned min_bytes_per_pixel = 0;
+ 
+       for (unsigned i = 0; i < render->color_att_count; ++i) {
+@@ -2708,13 +2706,13 @@ radv_get_disabled_binning_state(struct radv_cmd_buffer *cmd_buffer)
+             min_bytes_per_pixel = bytes;
+       }
+ 
+-      pa_sc_binner_cntl_0 = S_028C44_BINNING_MODE(binning_disabled) | S_028C44_BIN_SIZE_X(0) | S_028C44_BIN_SIZE_Y(0) |
+-                            S_028C44_BIN_SIZE_X_EXTEND(2) |                                /* 128 */
++      pa_sc_binner_cntl_0 = S_028C44_BINNING_MODE(V_028C44_BINNING_DISABLED) | S_028C44_BIN_SIZE_X(0) |
++                            S_028C44_BIN_SIZE_Y(0) | S_028C44_BIN_SIZE_X_EXTEND(2) |       /* 128 */
+                             S_028C44_BIN_SIZE_Y_EXTEND(min_bytes_per_pixel <= 4 ? 2 : 1) | /* 128 or 64 */
+                             S_028C44_DISABLE_START_OF_PRIM(1) | S_028C44_FLUSH_ON_BINNING_TRANSITION(1);
+    } else {
+       pa_sc_binner_cntl_0 =
+-         S_028C44_BINNING_MODE(V_028C44_DISABLE_BINNING_USE_LEGACY_SC) | S_028C44_DISABLE_START_OF_PRIM(1) |
++         S_028C44_BINNING_MODE(V_028C44_BINNING_DISABLED) | S_028C44_DISABLE_START_OF_PRIM(1) |
+          S_028C44_FLUSH_ON_BINNING_TRANSITION(pdev->info.family == CHIP_VEGA12 || pdev->info.family == CHIP_VEGA20 ||
+                                               pdev->info.family >= CHIP_RAVEN2);
+    }
+-- 
+2.54.0 (Apple Git-157)
+

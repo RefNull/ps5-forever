@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Tue, 4 Aug 2026 15:16:40 +0200
+Subject: [PATCH] radv: fix computing BC formats in texels for HIC
+
+Even when RowLength/ImageHeight are non-zero it should be in texels.
+
+Cc: mesa-stable
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/15935
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 7860fcf6a16e54859759e391c0732b4d87822480)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit 92a682e01362a3df8d8ced6cb9465bfd45306612)
+---
+ src/amd/vulkan/radv_host_image_copy.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_host_image_copy.c b/src/amd/vulkan/radv_host_image_copy.c
+index 2ee54d5528b..acff4ec5e91 100644
+--- a/src/amd/vulkan/radv_host_image_copy.c
++++ b/src/amd/vulkan/radv_host_image_copy.c
+@@ -31,8 +31,13 @@ radv_get_surface_copy_region(struct radv_device *device, const struct radv_image
+    const uint32_t texel_scale = radv_get_texel_scale(image->vk.format, subresource);
+    const VkOffset3D img_offset_el = vk_image_offset_to_elements(&image->vk, image_offset);
+    const VkExtent3D img_extent_el = vk_image_extent_to_elements(&image->vk, image_extent);
+-   const uint32_t mem_row_pitch = memory_row_length ? memory_row_length : img_extent_el.width;
+-   const uint32_t mem_slice_pitch = (memory_image_height ? memory_image_height : img_extent_el.height) * mem_row_pitch;
++   const VkExtent3D memory_extent = {
++      .width = memory_row_length ? memory_row_length : image_extent.width,
++      .height = memory_image_height ? memory_image_height : image_extent.height,
++   };
++   const VkExtent3D memory_extent_el = vk_image_extent_to_elements(&image->vk, memory_extent);
++   const uint32_t mem_row_pitch = memory_extent_el.width;
++   const uint32_t mem_slice_pitch = memory_extent_el.height * mem_row_pitch;
+ 
+    const struct ac_surface_copy_region surf_copy_region = {
+       .surf_ptr = surf_ptr,
+-- 
+2.54.0 (Apple Git-157)
+

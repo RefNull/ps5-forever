@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rhys Perry <pendingchaos02@gmail.com>
+Date: Thu, 17 Sep 2026 11:49:29 +0100
+Subject: [PATCH] aco/ra: check next register against bounds in subdword
+ get_reg_simple path
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fixes eventual assertion failure with GFX10.3 and
+dEQP-VK.ray_tracing_pipeline.misc.shaderRecordExplicitSTD430Offset_6.
+
+Signed-off-by: Rhys Perry <pendingchaos02@gmail.com>
+Backport-to: *
+Reviewed-by: Daniel Schürmann <daniel@schuermann.dev>
+(cherry picked from commit f9a2d34a19c496e552b6cd603e7807f1025a2e98)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit a1254bb164e72c4bc3509458954c83c69fcdf4fd)
+---
+ src/amd/compiler/aco_register_allocation.cpp | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/compiler/aco_register_allocation.cpp b/src/amd/compiler/aco_register_allocation.cpp
+index 8acc8819922..50bf1bc1550 100644
+--- a/src/amd/compiler/aco_register_allocation.cpp
++++ b/src/amd/compiler/aco_register_allocation.cpp
+@@ -1032,8 +1032,10 @@ get_reg_simple(ra_ctx& ctx, const RegisterFile& reg_file, DefInfo info,
+                            [](unsigned v) { return v == 0; });
+ 
+             /* check if also the neighboring reg is free if needed */
+-            if (reg_found && i + rc.bytes() > 4)
+-               reg_found = (reg_file[PhysReg{entry.first + 1}] == 0);
++            if (reg_found && i + rc.bytes() > 4) {
++               PhysReg next = PhysReg{entry.first + 1};
++               reg_found = next < bounds.end().reg && reg_file[next] == 0;
++            }
+ 
+             if (reg_found) {
+                PhysReg res{entry.first};
+-- 
+2.54.0 (Apple Git-157)
+

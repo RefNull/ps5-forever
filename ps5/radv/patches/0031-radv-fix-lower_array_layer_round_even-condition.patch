@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Georg Lehmann <dadschoorse@gmail.com>
+Date: Tue, 25 Aug 2026 07:52:32 +0200
+Subject: [PATCH] radv: fix lower_array_layer_round_even condition
+
+It seems like with conformant_trunc_coord, the layer component is always
+rounded, and without it, it's always truncated. The TRUNC_COORD sampler bit
+has no impact.
+
+Fixes: 200555fd3b2 ("radv: improve lower_array_layer_round_even condition")
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16128
+
+Reviewed-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Reviewed-by: Rhys Perry <pendingchaos02@gmail.com>
+(cherry picked from commit 3261364cab95877988e0bcf767e5f68c03f35652)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44168>
+(cherry picked from commit 2d7fa0ba789b1068b3978bde6d539cd5bd19e030)
+---
+ src/amd/vulkan/radv_pipeline.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_pipeline.c b/src/amd/vulkan/radv_pipeline.c
+index e4731f3d752..6e7f459f2e3 100644
+--- a/src/amd/vulkan/radv_pipeline.c
++++ b/src/amd/vulkan/radv_pipeline.c
+@@ -355,8 +355,7 @@ radv_postprocess_nir(const struct radv_compiler_info *compiler_info, const struc
+    NIR_PASS(_, stage->nir, ac_nir_lower_tex_coords,
+             &(ac_nir_lower_tex_coords_options){
+                .gfx_level = gfx_level,
+-               .lower_array_layer_round_even =
+-                  !compiler_info->ac->conformant_trunc_coord && !compiler_info->key.disable_trunc_coord,
++               .lower_array_layer_round_even = !compiler_info->ac->conformant_trunc_coord,
+                .fix_derivs_in_divergent_cf = stage->stage == MESA_SHADER_FRAGMENT && !use_llvm,
+                .max_wqm_vgprs = 64, // TODO: improve spiller and RA support for linear VGPRs
+             });
+-- 
+2.54.0 (Apple Git-157)
+

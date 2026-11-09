@@ -1,0 +1,56 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Connor Abbott <cwabbott0@gmail.com>
+Date: Fri, 25 Sep 2026 12:48:00 -0400
+Subject: [PATCH] vulkan/graphics_state: Don't get IAL state when not needed
+
+When emulating classic renderpasses using dynamic rendering, getting the
+input attachment location state involves querying the emulated render
+pass. If there is only vertex input state, then the render pass must be
+ignored, but the common code was still querying the render pass, even
+though it never actually used it. We did later update the spec to say
+that in such a case the render pass must still be NULL or valid, so the
+code worked for drivers which never pass in a driver_rp and always use
+emulated render passes.  However, in turnip we do not emulate render
+passes, and furthermore we try to be efficient and avoid constructing a
+driver_rp if unnecessary, as the common code should not need it. If the
+user then constructed a vertex input only pipeline but passed a
+valid-but-ignored renderPass, the driver_rp would be NULL and the common
+code would query the renderPass assuming it's a vk_render_pass, but it
+was actually a tu_render_pass, and the common code crashed. Avoid
+dereferencing it in this case and just make it NULL.
+
+Fixes: be2532fc003 ("vk/pass: Add input attachment location info")
+Reviewed-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Reviewed-by: Boris Brezillon <boris.brezillon@collabora.com>
+(cherry picked from commit 4503d6ea4a4fd8a54bb7d8a1b6180571d4737b4e)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45215>
+(cherry picked from commit 0eddb8f6bfc8e517d8888b8ee2b1f53b538e349f)
+---
+ src/vulkan/runtime/vk_graphics_state.c | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/src/vulkan/runtime/vk_graphics_state.c b/src/vulkan/runtime/vk_graphics_state.c
+index 990c3d5f378..bc7114c99c7 100644
+--- a/src/vulkan/runtime/vk_graphics_state.c
++++ b/src/vulkan/runtime/vk_graphics_state.c
+@@ -1819,10 +1819,12 @@ vk_graphics_pipeline_state_fill(const struct vk_device *device,
+    const VkPipelineFragmentShadingRateStateCreateInfoKHR *fsr_info =
+       vk_find_struct_const(info->pNext, PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR);
+ 
+-   const VkRenderingInputAttachmentIndexInfoKHR *ial_info =
+-      !driver_rp ? vk_get_pipeline_rendering_ial_info(info)
+-                 : vk_find_struct_const(
+-                      info->pNext, RENDERING_INPUT_ATTACHMENT_INDEX_INFO_KHR);
++   const VkRenderingInputAttachmentIndexInfoKHR *ial_info = NULL;
++   if (needs & MESA_VK_GRAPHICS_STATE_INPUT_ATTACHMENT_MAP_BIT) {
++      ial_info = !driver_rp ? vk_get_pipeline_rendering_ial_info(info)
++                            : vk_find_struct_const(
++                                info->pNext, RENDERING_INPUT_ATTACHMENT_INDEX_INFO_KHR);
++   }
+ 
+    const VkRenderingAttachmentLocationInfoKHR *cal_info =
+       vk_find_struct_const(info->pNext, RENDERING_ATTACHMENT_LOCATION_INFO_KHR);
+-- 
+2.54.0 (Apple Git-157)
+

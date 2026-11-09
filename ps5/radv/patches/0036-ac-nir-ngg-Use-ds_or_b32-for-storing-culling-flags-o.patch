@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Timur=20Krist=C3=B3f?= <timur.kristof@gmail.com>
+Date: Thu, 27 Aug 2026 17:32:45 +0200
+Subject: [PATCH] ac/nir/ngg: Use ds_or_b32 for storing culling flags on Navi
+ 10
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On Navi 10, we've seen power management related GPU hangs
+which are fixed by using an atomic OR instead.
+although it shouldn't be necessary to use atomics here.
+
+Cc: mesa-stable
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/15926
+Signed-off-by: Timur Kristóf <timur.kristof@gmail.com>
+Reviewed-by: Marek Olšák <maraeo@gmail.com>
+(cherry picked from commit ddd9a6580f857da7cef1ccefa75f45fdf88b21ee)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44168>
+(cherry picked from commit ea064974eccca5cc6adeca07ff55c1da503ac538)
+---
+ src/amd/common/nir/ac_nir_lower_ngg.c | 20 +++++++++++++++++---
+ 1 file changed, 17 insertions(+), 3 deletions(-)
+
+diff --git a/src/amd/common/nir/ac_nir_lower_ngg.c b/src/amd/common/nir/ac_nir_lower_ngg.c
+index ecc1b1f7847..c02dbd034cb 100644
+--- a/src/amd/common/nir/ac_nir_lower_ngg.c
++++ b/src/amd/common/nir/ac_nir_lower_ngg.c
+@@ -870,9 +870,23 @@ cull_primitive_accepted(nir_builder *b, void *state)
+ 
+    nir_store_var(b, s->gs_accepted_var, nir_imm_true(b), 0x1u);
+ 
+-   /* Store the accepted state to LDS for ES threads */
+-   for (unsigned vtx = 0; vtx < s->options->num_vertices_per_primitive; ++vtx)
+-      nir_store_shared(b, nir_imm_intN_t(b, 1, 8), s->vtx_addr[vtx], .base = lds_es_vertex_accepted);
++   /* Store the accepted state to LDS for ES threads.
++    * The accepted state is a 1-bit flag in the per-vertex structure,
++    * but the full byte is reserved for this flag.
++    *
++    * On Navi 10, we've seen power management related GPU hangs
++    * which are fixed by using an atomic OR instead, see:
++    * https://gitlab.freedesktop.org/mesa/mesa/-/work_items/15926
++    * although it shouldn't be necessary to use atomics here.
++    */
++   for (unsigned vtx = 0; vtx < s->options->num_vertices_per_primitive; ++vtx) {
++      if (s->ac->gfx_level >= GFX10_3)
++         nir_store_shared(b, nir_imm_intN_t(b, 1, 8), s->vtx_addr[vtx], .base = lds_es_vertex_accepted);
++      else
++         nir_shared_atomic(b, 32, s->vtx_addr[vtx], nir_imm_int(b, 1),
++                           .base = lds_es_vertex_accepted,
++                           .atomic_op = nir_atomic_op_ior);
++   }
+ }
+ 
+ static void
+-- 
+2.54.0 (Apple Git-157)
+

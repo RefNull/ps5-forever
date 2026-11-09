@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Marek=20Ol=C5=A1=C3=A1k?= <maraeo@gmail.com>
+Date: Sat, 3 Oct 2026 15:42:28 -0400
+Subject: [PATCH] radv: fix to use HTILE fills instead of RMW shaders to
+ restore previous behavior
+
+This reverses the unintended behavior change in 6f36a2be.
+
+This can fix https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16288
+only if there is a bug in the HTILE RMW dispatch.
+
+Fixes: 6f36a2be "ac: unify HTILE codes and encoding"
+(cherry picked from commit def8eef5fd9c04b388d75ac5de88f6bcf078cfd0)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45215>
+(cherry picked from commit c4293329739d40c0520bdebe78cff8bc42ade79b)
+---
+ src/amd/vulkan/meta/radv_meta_clear.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/vulkan/meta/radv_meta_clear.c b/src/amd/vulkan/meta/radv_meta_clear.c
+index eabd625ef03..f8f68984676 100644
+--- a/src/amd/vulkan/meta/radv_meta_clear.c
++++ b/src/amd/vulkan/meta/radv_meta_clear.c
+@@ -658,7 +658,8 @@ radv_get_htile_mask(struct radv_cmd_buffer *cmd_buffer, const struct radv_image
+          if (aspects & VK_IMAGE_ASPECT_DEPTH_BIT) {
+             mask |= HTILE_ZS_CODE(.zmask = 0xF,
+                                   .zdelta = 0x3F,
+-                                  .zbase = 0x3FFF);
++                                  .zbase = 0x3FFF,
++                                  .unused = 0x3);
+          }
+          if (aspects & VK_IMAGE_ASPECT_STENCIL_BIT) {
+             mask |= HTILE_ZS_CODE(.sr0 = 0x3,
+-- 
+2.54.0 (Apple Git-157)
+

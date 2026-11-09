@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Wed, 23 Sep 2026 10:59:31 +0200
+Subject: [PATCH] radv: fix dirtying graphics shaders when shader objects are
+ bound
+
+RADV_CMD_DIRTY_GRAPHICS_SHADERS should only be set when a graphics
+shader object is bound/unbound. This caused
+radv_bind_graphics_shaders() to crash if only a compute shader object
+is bound.
+
+This fixes new VKCTS coverage
+dEQP-VK.shader_object.pipeline_interaction.rebind_pipeline.
+
+Cc: mesa-stable
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16376
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit b206fc5f2fab3d8b9d4f7137c466a1daeb3d1fc0)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit 4574e63f1ddfa392abab926df88013c4e8084aa4)
+---
+ src/amd/vulkan/radv_cmd_buffer.c | 7 +++++--
+ 1 file changed, 5 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/vulkan/radv_cmd_buffer.c b/src/amd/vulkan/radv_cmd_buffer.c
+index 6ad784c5905..2b8fa0c96b1 100644
+--- a/src/amd/vulkan/radv_cmd_buffer.c
++++ b/src/amd/vulkan/radv_cmd_buffer.c
+@@ -18377,11 +18377,13 @@ radv_CmdBindShadersEXT(VkCommandBuffer commandBuffer, uint32_t stageCount, const
+                        const VkShaderEXT *pShaders)
+ {
+    VK_FROM_HANDLE(radv_cmd_buffer, cmd_buffer, commandBuffer);
+-   VkShaderStageFlagBits bound_stages = 0;
++   VkShaderStageFlagBits stages = 0, bound_stages = 0;
+ 
+    for (uint32_t i = 0; i < stageCount; i++) {
+       const mesa_shader_stage stage = vk_to_mesa_shader_stage(pStages[i]);
+ 
++      stages |= pStages[i];
++
+       if (!pShaders) {
+          cmd_buffer->state.shader_objs[stage] = NULL;
+          continue;
+@@ -18408,7 +18410,8 @@ radv_CmdBindShadersEXT(VkCommandBuffer commandBuffer, uint32_t stageCount, const
+       /* Graphics shaders are handled at draw time because of shader variants. */
+    }
+ 
+-   cmd_buffer->state.dirty |= RADV_CMD_DIRTY_GRAPHICS_SHADERS;
++   if (stages & RADV_GRAPHICS_STAGE_BITS)
++      cmd_buffer->state.dirty |= RADV_CMD_DIRTY_GRAPHICS_SHADERS;
+ }
+ 
+ VKAPI_ATTR void VKAPI_CALL
+-- 
+2.54.0 (Apple Git-157)
+

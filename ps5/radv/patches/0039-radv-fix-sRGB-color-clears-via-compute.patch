@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Marek=20Ol=C5=A1=C3=A1k?= <maraeo@gmail.com>
+Date: Wed, 2 Sep 2026 00:07:19 -0400
+Subject: [PATCH] radv: fix sRGB color clears via compute
+
+Only reproducible if the compute path is forced or if the queue is compute.
+
+Cc: mesa-stable
+
+Reviewed-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 9a427b7668cfb19788c4347d7c3df01e10d9983b)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44489>
+(cherry picked from commit 9c6e53145859049257d4c233599d8ad37da8f459)
+---
+ src/amd/vulkan/meta/radv_meta_clear.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/src/amd/vulkan/meta/radv_meta_clear.c b/src/amd/vulkan/meta/radv_meta_clear.c
+index 7f7651a0a0f..83f327c67d4 100644
+--- a/src/amd/vulkan/meta/radv_meta_clear.c
++++ b/src/amd/vulkan/meta/radv_meta_clear.c
+@@ -11,6 +11,7 @@
+ #include "radv_tracepoints.h"
+ 
+ #include "util/format_rgb9e5.h"
++#include "util/format_srgb.h"
+ #include "vk_format.h"
+ #include "vk_shader_module.h"
+ 
+@@ -1821,6 +1822,15 @@ radv_cmd_clear_image(struct radv_cmd_buffer *cmd_buffer, struct radv_image *imag
+    else
+       internal_clear_value.depthStencil = clear_value->depthStencil;
+ 
++   if (cs && vk_format_is_srgb(image->vk.format)) {
++      format = vk_format_no_srgb(image->vk.format);
++
++      for (unsigned i = 0; i < 3; i++) {
++         internal_clear_value.color.float32[i] =
++            util_format_linear_to_srgb_float(internal_clear_value.color.float32[i]);
++      }
++   }
++
+    if (format == VK_FORMAT_E5B9G9R9_UFLOAT_PACK32) {
+       if (cs ? !radv_is_storage_image_format_supported(pdev, format)
+              : !radv_is_colorbuffer_format_supported(pdev, format)) {
+-- 
+2.54.0 (Apple Git-157)
+

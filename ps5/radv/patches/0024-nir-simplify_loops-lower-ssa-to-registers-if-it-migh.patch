@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rhys Perry <pendingchaos02@gmail.com>
+Date: Tue, 4 Aug 2026 17:00:51 +0100
+Subject: [PATCH] nir/simplify_loops: lower ssa to registers if it might be
+ necessary
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+No fossil-db changes.
+
+Signed-off-by: Rhys Perry <pendingchaos02@gmail.com>
+Fixes: 31af989270f ("nir/lower_continue_constructs: Simplify loops before lowering continue constructs")
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+Reviewed-by: Daniel Schürmann <daniel@schuermann.dev>
+(cherry picked from commit d1f184ac6c13390e6b315d039048b8100061d744)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit 148387f335a4e13489ae2a1c4057a4488cf4a272)
+---
+ src/compiler/nir/nir_lower_continue_constructs.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/src/compiler/nir/nir_lower_continue_constructs.c b/src/compiler/nir/nir_lower_continue_constructs.c
+index bab5936b781..7a5df7d528f 100644
+--- a/src/compiler/nir/nir_lower_continue_constructs.c
++++ b/src/compiler/nir/nir_lower_continue_constructs.c
+@@ -53,6 +53,7 @@ struct loop_simplify_state {
+    nir_def *jump_flag;
+    struct exec_list *cf_list;
+    nir_jump_type type;
++   nir_loop *loop;
+ };
+ 
+ static bool
+@@ -124,6 +125,12 @@ lower_jumps_in_if(nir_if *nif, struct loop_simplify_state *state)
+       nir_cf_extract(&list, nir_after_cf_node(&nif->cf_node),
+                      nir_after_cf_list(state->cf_list));
+ 
++      /* If this is top-level within the loop, phi lowering from the caller
++       * should handle this.
++       */
++      if (nif->cf_node.parent != &state->loop->cf_node)
++         nir_cf_list_detach_ssa(&list);
++
+       if (then_jumps && else_jumps) {
+          /* Both branches jump, just delete instructions following the IF. */
+          nir_cf_delete(&list);
+@@ -152,6 +159,9 @@ lower_jumps_in_if(nir_if *nif, struct loop_simplify_state *state)
+       nir_cf_extract(&list, nir_after_cf_node_and_phis(&nif->cf_node),
+                      nir_after_cf_list(state->cf_list));
+ 
++      if (nif->cf_node.parent != &state->loop->cf_node)
++         nir_cf_list_detach_ssa(&list);
++
+       state->b->cursor = nir_after_cf_node_and_phis(&nif->cf_node);
+       nir_if *if_stmt = nir_push_if(state->b, nir_load_reg(state->b, state->jump_flag));
+ 
+@@ -218,6 +228,7 @@ nir_simplify_loop(nir_loop *loop, nir_jump_type type)
+    state.type = type;
+    nir_builder b = nir_builder_at(nir_before_block_after_phis(nir_loop_first_block(loop)));
+    state.b = &b;
++   state.loop = loop;
+ 
+    /* Initialize the variable to False. */
+    state.jump_flag = nir_decl_reg(&b, 1, 1, 0);
+-- 
+2.54.0 (Apple Git-157)
+

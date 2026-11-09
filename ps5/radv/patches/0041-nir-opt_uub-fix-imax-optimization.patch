@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Georg Lehmann <dadschoorse@gmail.com>
+Date: Fri, 4 Sep 2026 14:26:53 +0200
+Subject: [PATCH] nir/opt_uub: fix imax optimization
+
+We were accidentally treating imax like imin by not checking the
+updated opcode.
+
+Fixes: 3908a228bd9 ("nir: add opt_uub pass")
+Reviewed-by: Rhys Perry <pendingchaos02@gmail.com>
+(cherry picked from commit 327109ecb420630703884138742e9a370cdfa3ae)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44489>
+(cherry picked from commit a13dfbea0f898dde77382ccba8f699673885952a)
+---
+ src/compiler/nir/nir_opt_uub.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/compiler/nir/nir_opt_uub.c b/src/compiler/nir/nir_opt_uub.c
+index 19d50f5f72e..3b397c2eeb2 100644
+--- a/src/compiler/nir/nir_opt_uub.c
++++ b/src/compiler/nir/nir_opt_uub.c
+@@ -193,7 +193,7 @@ opt_uub_minmax(nir_builder *b, nir_alu_instr *alu, opt_uub_state *state)
+    if (src_uub > nir_scalar_as_uint(const_src))
+       return false;
+ 
+-   nir_scalar replacement = alu->op == nir_op_umax ? const_src : src;
++   nir_scalar replacement = op == nir_op_umax ? const_src : src;
+    b->cursor = nir_after_instr(&alu->instr);
+    nir_def_replace(&alu->def, nir_mov_scalar(b, replacement));
+    return true;
+-- 
+2.54.0 (Apple Git-157)
+

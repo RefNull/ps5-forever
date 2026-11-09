@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Georg Lehmann <dadschoorse@gmail.com>
+Date: Wed, 7 Oct 2026 17:02:07 +0200
+Subject: [PATCH] aco: fix constant bus violation for scaled transcendental op
+
+VCC counts as the only possible SGPR use before GFX10.
+
+Fixes: 284b9965e82 ("aco/gfx11.5+: allow sgpr dst for trans ops and use pseudo scalar ops on gfx12")
+Closes: https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16514
+Reviewed-by: Rhys Perry <pendingchaos02@gmail.com>
+(cherry picked from commit 3b1fece6ff52f0e5eb86ba76119b0fb9708d5984)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45215>
+(cherry picked from commit 36f9f1e987672b9833f0ba61dc07a6282941a26e)
+---
+ .../instruction_selection/aco_select_nir_alu.cpp  | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/src/amd/compiler/instruction_selection/aco_select_nir_alu.cpp b/src/amd/compiler/instruction_selection/aco_select_nir_alu.cpp
+index d509130f4d8..1377b18ef06 100644
+--- a/src/amd/compiler/instruction_selection/aco_select_nir_alu.cpp
++++ b/src/amd/compiler/instruction_selection/aco_select_nir_alu.cpp
+@@ -631,10 +631,17 @@ emit_scaled_op(isel_context* ctx, Builder& bld, Definition dst, Temp val, aco_op
+                                   ->valu();
+       valu.neg[0] = true;
+       valu.abs[0] = true;
+-      scale = bld.vop2_e64(aco_opcode::v_cndmask_b32, bld.def(v1), Operand::c32(0x3f800000),
+-                           bld.copy(bld.def(s1), Operand::c32(0x4b800000u)), is_denormal);
+-      unscale = bld.vop2_e64(aco_opcode::v_cndmask_b32, bld.def(v1), Operand::c32(0x3f800000),
+-                             bld.copy(bld.def(s1), Operand::c32(undo)), is_denormal);
++      if (ctx->options->gfx_level >= GFX10) {
++         scale = bld.vop2_e64(aco_opcode::v_cndmask_b32, bld.def(v1), Operand::c32(0x3f800000),
++                              bld.copy(bld.def(s1), Operand::c32(0x4b800000u)), is_denormal);
++         unscale = bld.vop2_e64(aco_opcode::v_cndmask_b32, bld.def(v1), Operand::c32(0x3f800000),
++                                bld.copy(bld.def(s1), Operand::c32(undo)), is_denormal);
++      } else {
++         scale = bld.vop2(aco_opcode::v_cndmask_b32, bld.def(v1), Operand::c32(0x3f800000),
++                          bld.copy(bld.def(v1), Operand::c32(0x4b800000u)), is_denormal);
++         unscale = bld.vop2(aco_opcode::v_cndmask_b32, bld.def(v1), Operand::c32(0x3f800000),
++                            bld.copy(bld.def(v1), Operand::c32(undo)), is_denormal);
++      }
+    } else {
+       Temp abs = bld.sop2(aco_opcode::s_and_b32, bld.def(s1), bld.def(s1, scc), val,
+                           bld.copy(bld.def(s1), Operand::c32(0x7fffffff)));
+-- 
+2.54.0 (Apple Git-157)
+

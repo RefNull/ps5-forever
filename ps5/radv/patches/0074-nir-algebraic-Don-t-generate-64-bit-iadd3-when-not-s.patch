@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ian Romanick <ian.d.romanick@intel.com>
+Date: Fri, 2 Oct 2026 16:11:57 -0700
+Subject: [PATCH] nir/algebraic: Don't generate 64-bit iadd3 when not supported
+
+Fixes: dcfc90a8fc0 ("nir/algebraic: Convert bcsel of addition to addition of b2i or b2f")
+Reported-by: Adrian Baker
+Reviewed-by: Adrian Baker <adrian1.baker@intel.com>
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+(cherry picked from commit 5d4c4bd553a4f0d0d2fe0c0f07f866803be44ecc)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45215>
+(cherry picked from commit 69fea831b466dfefaa3c751f1fd4d830e3450b97)
+---
+ src/compiler/nir/nir_opt_algebraic.py | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/compiler/nir/nir_opt_algebraic.py b/src/compiler/nir/nir_opt_algebraic.py
+index fd5c6bf00a4..b82a73a6525 100644
+--- a/src/compiler/nir/nir_opt_algebraic.py
++++ b/src/compiler/nir/nir_opt_algebraic.py
+@@ -3738,8 +3738,12 @@ late_optimizations = [
+    # Since b2i(inot(a)) == 1 - b2i(a), 1 - b2i(inot(a)) == b2i(a).
+    (('iadd3', a,          ('b2i', ('inot', b)),  -1), ('iadd', a, ('ineg', ('b2i', b)))),
+    (('iadd3', a, ('ineg', ('b2i', ('inot', b))),  1), ('iadd', a,          ('b2i', b) )),
+-   (('iadd', a, ('ineg', ('b2i', ('inot', b)))), ('iadd3', a,          ('b2i', b) , -1), 'options->has_iadd3'),
+-   (('iadd', a,          ('b2i', ('inot', b)) ), ('iadd3', a, ('ineg', ('b2i', b)),  1), 'options->has_iadd3'),
++   (('iadd@16', a, ('ineg', ('b2i', ('inot', b)))), ('iadd3', a,          ('b2i', b) , -1), 'options->has_iadd3'),
++   (('iadd@16', a,          ('b2i', ('inot', b)) ), ('iadd3', a, ('ineg', ('b2i', b)),  1), 'options->has_iadd3'),
++   (('iadd@32', a, ('ineg', ('b2i', ('inot', b)))), ('iadd3', a,          ('b2i', b) , -1), 'options->has_iadd3'),
++   (('iadd@32', a,          ('b2i', ('inot', b)) ), ('iadd3', a, ('ineg', ('b2i', b)),  1), 'options->has_iadd3'),
++   (('iadd@64', a, ('ineg', ('b2i', ('inot', b)))), ('iadd3', a,          ('b2i', b) , -1), 'options->has_iadd3 && !(options->lower_int64_options & nir_lower_iadd3_64)'),
++   (('iadd@64', a,          ('b2i', ('inot', b)) ), ('iadd3', a, ('ineg', ('b2i', b)),  1), 'options->has_iadd3 && !(options->lower_int64_options & nir_lower_iadd3_64)'),
+ ]
+ 
+ for int_sz in (8, 16, 32):
+-- 
+2.54.0 (Apple Git-157)
+

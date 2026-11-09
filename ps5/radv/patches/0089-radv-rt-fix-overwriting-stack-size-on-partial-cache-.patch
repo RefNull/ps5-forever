@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Wed, 21 Oct 2026 12:03:09 +0000
+Subject: [PATCH] radv/rt: fix overwriting stack size on partial cache hits
+
+On a partial cache hit, the binaries and the RT stack size are
+restored. But in some cases (eg. for libraries), the NIR needs to be
+recompiled and it was overwriting the previous stack size.
+
+This caused some (very rare) random VM faults with
+dEQP-VK.ray_tracing_pipeline.pipeline_library.configurations.rgen_miss_in_library.*
+because scratch was supposed to be enabled but it wasn't due to the
+stack size being 0.
+
+This has been very hard to reproduce, mainly because the issue depends
+on NIR shaders being evicted from the shaders cache. It took a lot of
+back and forth to figure out this.
+
+Cc: mesa-stable
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit af3b0f05fc9c7d01a9674f1046bf6389a5af47c9)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45704>
+(cherry picked from commit 3159030db2d0b8297031d1595f6d736b7ebf8065)
+---
+ src/amd/vulkan/radv_pipeline_rt.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/vulkan/radv_pipeline_rt.c b/src/amd/vulkan/radv_pipeline_rt.c
+index 8b50354bac5..e37b7c74f06 100644
+--- a/src/amd/vulkan/radv_pipeline_rt.c
++++ b/src/amd/vulkan/radv_pipeline_rt.c
+@@ -792,7 +792,12 @@ radv_rt_compile_shaders(struct radv_device *device, struct vk_pipeline_cache *ca
+       if (nir_needed) {
+          const bool cached = !stage->key.optimisations_disabled &&
+                              !(pipeline->base.base.create_flags & VK_PIPELINE_CREATE_2_CAPTURE_DATA_BIT_KHR);
+-         rt_stages[idx].stack_size = stage->nir->scratch_size;
++
++         /* On partial cache hits (when binaries are found but not NIR), the stack size is already
++          * restored from the cache but NIR must be recompiled in some cases. Do not overwrite it
++          * with the NIR scratch size which might be zero.
++          */
++         rt_stages[idx].stack_size = MAX2(rt_stages[idx].stack_size, stage->nir->scratch_size);
+          rt_stages[idx].nir = radv_pipeline_cache_nir_to_handle(device, cache, stage->nir, rt_stages[idx].blake3, cached);
+       }
+ 
+-- 
+2.54.0 (Apple Git-157)
+

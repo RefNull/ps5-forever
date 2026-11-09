@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Caio Oliveira <caio.oliveira@intel.com>
+Date: Sun, 23 Aug 2026 19:50:06 -0700
+Subject: [PATCH] spirv: Preserve all fp_math_ctrl bits in vtn_handle_alu
+ default case
+
+Fixes: a706769a0b3 ("nir: move exact bit to nir_fp_math_control")
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+Reviewed-by: Mel Henning <mhenning@darkrefraction.com>
+(cherry picked from commit 091a24e239b1269245852c82a1bcb586e965d6cc)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44489>
+(cherry picked from commit 8f5125d15f3c125fd7eab54902fca4b3b26e9e85)
+---
+ src/compiler/spirv/vtn_alu.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/compiler/spirv/vtn_alu.c b/src/compiler/spirv/vtn_alu.c
+index c17c3ca880f..d531d79877f 100644
+--- a/src/compiler/spirv/vtn_alu.c
++++ b/src/compiler/spirv/vtn_alu.c
+@@ -1135,7 +1135,7 @@ vtn_handle_alu(struct vtn_builder *b, SpvOp opcode,
+          break;
+       }
+ 
+-      const bool save_fp_math_ctrl = b->nb.fp_math_ctrl;
++      const unsigned save_fp_math_ctrl = b->nb.fp_math_ctrl;
+ 
+       b->nb.fp_math_ctrl |= extra_fp_math_ctrl;
+ 
+-- 
+2.54.0 (Apple Git-157)
+

@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Fri, 18 Sep 2026 09:01:15 +0200
+Subject: [PATCH] radv: do not abort when a GPU hang report is created with
+ deviceFaultVendorBinary
+
+Just a different device features than the EXT.
+
+Fixes: b0ee9510d75 ("radv: advertise VK_KHR_device_fault")
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 69bc9d5541a39da74acc8bb70f08a6f50c95d65f)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit a01742947d158cf722273198e3d8ededfb5943ca)
+---
+ src/amd/vulkan/tools/radv_debug_hang.c | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/amd/vulkan/tools/radv_debug_hang.c b/src/amd/vulkan/tools/radv_debug_hang.c
+index 9005bddcf6c..99933e36e11 100644
+--- a/src/amd/vulkan/tools/radv_debug_hang.c
++++ b/src/amd/vulkan/tools/radv_debug_hang.c
+@@ -586,7 +586,8 @@ radv_dump_shader(struct radv_device *device, struct radv_pipeline *pipeline, str
+       _mesa_blake3_compute(shader->dbg.spirv, shader->dbg.spirv_size, blake3);
+       _mesa_blake3_format(blake3buf, blake3);
+ 
+-      if (device->vk.enabled_features.deviceFaultVendorBinaryEXT) {
++      if (device->vk.enabled_features.deviceFaultVendorBinaryEXT ||
++          device->vk.enabled_features.deviceFaultVendorBinary) {
+          spirv_print_asm(f, (const uint32_t *)shader->dbg.spirv, shader->dbg.spirv_size / 4);
+       } else {
+          fprintf(f, "SPIRV (see %s.spv)\n\n", blake3buf);
+@@ -997,7 +998,8 @@ radv_check_gpu_hangs(struct radv_queue *queue, const struct radv_winsys_submit_i
+ #ifndef _WIN32
+    const struct radv_physical_device *pdev = radv_device_physical(device);
+    const struct radv_instance *instance = radv_physical_device_instance(pdev);
+-   const bool save_hang_report = !device->vk.enabled_features.deviceFaultVendorBinaryEXT;
++   const bool save_hang_report =
++      !(device->vk.enabled_features.deviceFaultVendorBinaryEXT || device->vk.enabled_features.deviceFaultVendorBinary);
+    struct radv_winsys_gpuvm_fault_info fault_info = {0};
+ 
+    /* Query if a VM fault happened for this GPU hang. */
+-- 
+2.54.0 (Apple Git-157)
+

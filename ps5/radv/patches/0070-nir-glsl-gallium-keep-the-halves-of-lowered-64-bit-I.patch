@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Matt Turner <mattst88@gmail.com>
+Date: Fri, 2 Oct 2026 16:17:54 -0400
+Subject: [PATCH] nir, glsl, gallium: keep the halves of lowered 64-bit IO in
+ memory order
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The two 32-bit channels of a lowered 64-bit value are in memory order
+when they come from a vertex buffer, since
+util_lower_uint64_vertex_elements() splits the element into 32-bit
+words, and when transform feedback writes them out. tgsi_exec also
+reads a channel pair as the memory of a double. On big-endian hosts
+memory order puts the high half first, but these put the low half
+first:
+
+- nir_lower_io, when packing and unpacking the channels
+- nir_unlower_io_to_vars, when extracting them from a dvec4 input
+- gl_nir_lower_packed_varyings, when packing 64-bit varyings into ivec4
+- nir_to_tgsi, for pack and unpack, u2u64, u2u32, i2i32, b2i64 and
+  64-bit immediates, including the 1.0 that b2f64 and fsat use
+- gallivm, when fetching and storing 64-bit IO, since 3aeb61da49c
+  ("gallivm/nir: fix big-endian 64-bit splitting/merging")
+
+On big-endian llvmpipe and softpipe this swaps the halves of 64-bit
+vertex inputs, varyings and transform feedback outputs, and softpipe
+also gets u2u64, u2u32 and 64-bit fsat wrong.
+
+Keep the two channels in memory order everywhere. Little-endian is
+unchanged.
+
+This fixes 1892 piglit tests on big-endian llvmpipe and softpipe,
+including:
+
+  arb_vertex_attrib_64bit/execution/vs_in/* (1518 tests)
+  arb_gpu_shader_int64/execution/conversion/* (96 tests)
+  arb_gpu_shader_fp64/execution/arb_gpu_shader_fp64-tf-interleaved
+  arb_gpu_shader_fp64/execution/arb_gpu_shader_fp64-tf-separate
+  arb_gpu_shader_fp64/execution/built-in-functions/vs-packdouble2x32
+  arb_gpu_shader_fp64/execution/built-in-functions/fs-smoothstep-double-double-double
+
+Cc: mesa-stable
+Reviewed-by: Marek Olšák <maraeo@gmail.com> (except nir_to_tgsi)
+(cherry picked from commit 3ec8c5f86f3aaa5fd25666aec0ac873efec0fe85)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45215>
+(cherry picked from commit 46477a810b597d30ba45aa487c6983d060c4dda9)
+---
+ src/compiler/nir/nir_builder.h            | 19 +++++++++++++++++++
+ src/compiler/nir/nir_lower_io.c           |  4 +++-
+ src/compiler/nir/nir_unlower_io_to_vars.c |  1 +
+ 3 files changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/src/compiler/nir/nir_builder.h b/src/compiler/nir/nir_builder.h
+index 46e6ec72f7a..55fb531df45 100644
+--- a/src/compiler/nir/nir_builder.h
++++ b/src/compiler/nir/nir_builder.h
+@@ -26,6 +26,7 @@
+ 
+ #include "util/bitscan.h"
+ #include "util/half_float.h"
++#include "util/u_endian.h"
+ #include "nir_control_flow.h"
+ 
+ #ifdef __cplusplus
+@@ -797,6 +798,24 @@ nir_swizzle(nir_builder *build, nir_def *src, const unsigned *swiz,
+    return nir_mov_alu(build, alu_src, num_components);
+ }
+ 
++/**
++ * Convert 64-bit values split into pairs of 32-bit components between the
++ * low-half-first order of nir_unpack_64_2x32() and memory order, which puts
++ * the high half first on big-endian hosts. Lowered 64-bit IO uses memory
++ * order.
++ */
++static inline nir_def *
++nir_64_2x32_memory_order(nir_builder *build, nir_def *src)
++{
++   static const unsigned swap[] = { 1, 0, 3, 2 };
++
++   assert(src->num_components == 2 || src->num_components == 4);
++   if (UTIL_ARCH_LITTLE_ENDIAN)
++      return src;
++
++   return nir_swizzle(build, src, swap, src->num_components);
++}
++
+ /* Selects the right fdot given the number of components in each source. */
+ static inline nir_def *
+ nir_fdot(nir_builder *build, nir_def *src0, nir_def *src1)
+diff --git a/src/compiler/nir/nir_lower_io.c b/src/compiler/nir/nir_lower_io.c
+index 201c5ba45a6..3ac76201a38 100644
+--- a/src/compiler/nir/nir_lower_io.c
++++ b/src/compiler/nir/nir_lower_io.c
+@@ -521,6 +521,7 @@ lower_load(nir_intrinsic_instr *intrin, struct lower_io_state *state,
+          nir_def *data32 =
+             emit_load(state, array_index, var, offset, component,
+                       num_comps * 2, 32, nir_type_uint32, high_dvec2);
++         data32 = nir_64_2x32_memory_order(b, data32);
+          for (unsigned i = 0; i < num_comps; i++) {
+             comp64[dest_comp + i] =
+                nir_pack_64_2x32(b, nir_channels(b, data32, 3 << (i * 2)));
+@@ -677,7 +678,8 @@ lower_store(nir_intrinsic_instr *intrin, struct lower_io_state *state,
+             nir_def *data =
+                nir_channels(b, intrin->src[1].ssa,
+                             BITFIELD_RANGE(src_comp, num_comps));
+-            nir_def *data32 = nir_bitcast_vector(b, data, 32);
++            nir_def *data32 =
++               nir_64_2x32_memory_order(b, nir_bitcast_vector(b, data, 32));
+ 
+             uint32_t write_mask32 = 0;
+             for (unsigned i = 0; i < num_comps; i++) {
+diff --git a/src/compiler/nir/nir_unlower_io_to_vars.c b/src/compiler/nir/nir_unlower_io_to_vars.c
+index 50361427c77..2095dc059cf 100644
+--- a/src/compiler/nir/nir_unlower_io_to_vars.c
++++ b/src/compiler/nir/nir_unlower_io_to_vars.c
+@@ -643,6 +643,7 @@ unlower_io_to_vars(nir_builder *b, nir_intrinsic_instr *intr, void *opaque)
+          load = nir_load_deref_with_access(b, deref, var->data.access);
+          load = nir_extract_bits(b, &load, 1, desc.sem.high_dvec2 ? 128 : 0,
+                                  4, 32);
++         load = nir_64_2x32_memory_order(b, load);
+       } else {
+          nir_intrinsic_op baryc = desc.baryc ? desc.baryc->intrinsic :
+                                                nir_num_intrinsics;
+-- 
+2.54.0 (Apple Git-157)
+

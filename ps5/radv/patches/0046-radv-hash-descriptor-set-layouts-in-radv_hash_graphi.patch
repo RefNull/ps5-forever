@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rhys Perry <pendingchaos02@gmail.com>
+Date: Mon, 7 Sep 2026 11:05:15 +0100
+Subject: [PATCH] radv: hash descriptor set layouts in
+ radv_hash_graphics_spirv_to_nir
+
+Signed-off-by: Rhys Perry <pendingchaos02@gmail.com>
+Backport-to: *
+Reviewed-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit 50203065421d65524b60911e677d1f3f2405d0a5)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44489>
+(cherry picked from commit 9679ac6cf1943ae627fe9c618eb8a2a7651966fb)
+---
+ src/amd/vulkan/radv_pipeline_cache.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/amd/vulkan/radv_pipeline_cache.c b/src/amd/vulkan/radv_pipeline_cache.c
+index 3daf51153e7..b7b72e4e884 100644
+--- a/src/amd/vulkan/radv_pipeline_cache.c
++++ b/src/amd/vulkan/radv_pipeline_cache.c
+@@ -34,6 +34,13 @@ radv_hash_graphics_spirv_to_nir(blake3_hash hash, const struct radv_shader_stage
+    _mesa_blake3_update(&ctx, &stage->key, sizeof(stage->key));
+    _mesa_blake3_update(&ctx, options, sizeof(*options));
+    _mesa_blake3_update(&ctx, stage->shader_blake3, sizeof(stage->shader_blake3));
++   _mesa_blake3_update(&ctx, &stage->layout.num_sets, sizeof(stage->layout.num_sets));
++   for (unsigned i = 0; i < stage->layout.num_sets; i++) {
++      if (!stage->layout.set[i].layout)
++         continue;
++      _mesa_blake3_update(&ctx, stage->layout.set[i].layout->hash,
++                          sizeof(stage->layout.set[i].layout->hash));
++   }
+    _mesa_blake3_final(&ctx, hash);
+ }
+ 
+-- 
+2.54.0 (Apple Git-157)
+

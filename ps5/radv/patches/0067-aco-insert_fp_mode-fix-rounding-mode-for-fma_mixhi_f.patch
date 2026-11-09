@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Randy Palamar <randy@rnpnr.xyz>
+Date: Fri, 25 Sep 2026 18:17:06 -0700
+Subject: [PATCH] aco/insert_fp_mode: fix rounding mode for fma_mixhi_f16
+
+Fixes: 46c1bd1147c ("aco: add a dedicated pass for better float MODE insertion")
+
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+(cherry picked from commit fa8db585df41973ccd6b6b4c4e80d15dfac77b5c)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit e95dbf5abb1da978045049246c62ee0796e512bb)
+---
+ src/amd/compiler/aco_insert_fp_mode.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/amd/compiler/aco_insert_fp_mode.cpp b/src/amd/compiler/aco_insert_fp_mode.cpp
+index ef4f963fa73..ab89fefc25b 100644
+--- a/src/amd/compiler/aco_insert_fp_mode.cpp
++++ b/src/amd/compiler/aco_insert_fp_mode.cpp
+@@ -286,7 +286,7 @@ alu_default_needs(aco_opcode opcode)
+          res |= BITFIELD_BIT(mode_fp16_ovfl);
+    }
+ 
+-   if (opcode == aco_opcode::v_fma_mixlo_f16 || opcode == aco_opcode::v_fma_mixlo_f16) {
++   if (opcode == aco_opcode::v_fma_mixlo_f16 || opcode == aco_opcode::v_fma_mixhi_f16) {
+       res |= BITFIELD_BIT(mode_round32);
+    } else if (opcode == aco_opcode::v_fma_mix_f32) {
+       /* In theory, this is only needed with opsel_hi, but v_fma_mix_f32 without
+-- 
+2.54.0 (Apple Git-157)
+

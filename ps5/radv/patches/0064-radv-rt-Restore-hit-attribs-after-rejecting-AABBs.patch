@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Konstantin Seurer <konstantin.seurer@gmail.com>
+Date: Fri, 18 Sep 2026 14:13:37 +0200
+Subject: [PATCH] radv/rt: Restore hit attribs after rejecting AABBs
+
+Keeping the hit attribs of the rejected hit arounf causes
+dEQP-VK.ray_tracing_pipeline.misc.hitattribute_closest_hit_correctness
+to fail.
+
+cc: mesa-stable
+
+Reviewed-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit e73f0410cf41c147014a8c0bb38b5c1ebf6d9dcc)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44820>
+(cherry picked from commit 114ef59776a6b72e91f6ae07e832186c127cd080)
+---
+ src/amd/vulkan/nir/radv_nir_rt_traversal_shader.c | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/src/amd/vulkan/nir/radv_nir_rt_traversal_shader.c b/src/amd/vulkan/nir/radv_nir_rt_traversal_shader.c
+index 3b71ad86961..15acd620316 100644
+--- a/src/amd/vulkan/nir/radv_nir_rt_traversal_shader.c
++++ b/src/amd/vulkan/nir/radv_nir_rt_traversal_shader.c
+@@ -1079,6 +1079,10 @@ handle_candidate_aabb(nir_builder *b, struct radv_leaf_intersection *intersectio
+          radv_nir_load_sbt_entry(b, nir_load_sbt_base_amd(b), sbt_idx, SBT_HIT, SBT_INTERSECTION_IDX);
+       nir_store_var(b, ahit_vars.shader_record_ptr, sbt_data.shader_record_ptr, 0x1);
+ 
++      nir_def *prev_hit_attribs[RADV_MAX_HIT_ATTRIB_DWORDS];
++      for (uint32_t i = 0; i < RADV_MAX_HIT_ATTRIB_DWORDS; i++)
++         prev_hit_attribs[i] = nir_load_hit_attrib_amd(b, .base = i);
++
+       struct traversal_inlining_params inlining_params = {
+          .compiler_info = data->compiler_info,
+          .trav_vars = &data->trav_vars,
+@@ -1104,6 +1108,11 @@ handle_candidate_aabb(nir_builder *b, struct radv_leaf_intersection *intersectio
+          copy_traversal_result(b, &data->trav_vars.result, &candidate_result);
+          nir_break_if(b, nir_load_var(b, ahit_vars.ahit_terminate));
+       }
++      nir_push_else(b, NULL);
++      {
++         for (uint32_t i = 0; i < RADV_MAX_HIT_ATTRIB_DWORDS; i++)
++            nir_store_hit_attrib_amd(b, prev_hit_attribs[i], .base = i);
++      }
+       nir_pop_if(b, NULL);
+    } else {
+       struct radv_nir_sbt_data sbt_data =
+-- 
+2.54.0 (Apple Git-157)
+

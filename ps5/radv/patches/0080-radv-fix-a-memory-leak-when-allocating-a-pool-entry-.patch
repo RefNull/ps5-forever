@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Date: Tue, 13 Oct 2026 14:26:42 +0200
+Subject: [PATCH] radv: fix a memory leak when allocating a pool entry failed
+
+When radv_descriptor_set_create() fails, it breaks the loop in
+radv_AllocateDescriptorSets() and the entry i isn't set, so nothing is
+freed.
+
+Fixes: 849d41dbf83 ("radv: implement a new descriptor sets allocator")
+Signed-off-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+(cherry picked from commit a86c98dae8ac5a14841e1f64ddb25153af590282)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/45704>
+(cherry picked from commit cfbea1f8ad2798692829cc834afe18092e4315ba)
+---
+ src/amd/vulkan/radv_descriptor_set.c | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/vulkan/radv_descriptor_set.c b/src/amd/vulkan/radv_descriptor_set.c
+index 8a9d5870126..f7934a31eb6 100644
+--- a/src/amd/vulkan/radv_descriptor_set.c
++++ b/src/amd/vulkan/radv_descriptor_set.c
+@@ -448,8 +448,15 @@ radv_descriptor_set_create(struct radv_device *device, struct radv_descriptor_po
+    set->header.size = align(layout_size, 32);
+ 
+    result = radv_alloc_descriptor_pool_entry(device, pool, set);
+-   if (result != VK_SUCCESS)
++   if (result != VK_SUCCESS) {
++      vk_object_base_finish(&set->header.base);
++      if (pool->host_memory_base) {
++         pool->host_memory_ptr -= mem_size;
++      } else {
++         vk_free2(&device->vk.alloc, NULL, set);
++      }
+       return result;
++   }
+ 
+    if (layout->has_immutable_samplers) {
+       for (unsigned i = 0; i < layout->binding_count; ++i) {
+-- 
+2.54.0 (Apple Git-157)
+

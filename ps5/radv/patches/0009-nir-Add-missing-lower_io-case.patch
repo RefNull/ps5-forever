@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rob Clark <rob.clark@oss.qualcomm.com>
+Date: Wed, 5 Aug 2026 11:20:59 -0700
+Subject: [PATCH] nir: Add missing lower_io case
+
+Fixes an assert with load/store_global_offset in CL CTS.
+
+Fixes: 355c9b88f721 ("nir: add some helpers for dealing with offset_shift")
+Signed-off-by: Rob Clark <rob.clark@oss.qualcomm.com>
+(cherry picked from commit 2376e45acbf67dcb97bcb36ca5377115456b4e0e)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit c7e793bf417a113918fe4b3dc62c0390793c5029)
+---
+ src/compiler/nir/nir_lower_io.c | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/src/compiler/nir/nir_lower_io.c b/src/compiler/nir/nir_lower_io.c
+index 5c205963cef..201c5ba45a6 100644
+--- a/src/compiler/nir/nir_lower_io.c
++++ b/src/compiler/nir/nir_lower_io.c
+@@ -124,15 +124,19 @@ nir_io_offset_iadd(nir_builder *b, nir_intrinsic_instr *intr,
+          base_shift = 0;
+          offset_shift = cur_offset_shift;
+       } else {
+-         /* TODO add support for adjusting the base index. */
+-         assert(!nir_intrinsic_has_base(intr) || nir_intrinsic_base(intr) == 0);
++         unsigned offset = offset_diff_bytes;
++
++         if (nir_intrinsic_has_base(intr)) {
++            offset += nir_intrinsic_base(intr) << cur_offset_shift;
++            nir_intrinsic_set_base(intr, 0);
++         }
+ 
+          /* Otherwise, we have to lower offset_shift in order to not lose
+           * precision. We also have to shift the original base offset left to
+           * make sure it uses the same units.
+           */
+-         offset_shift = ffs(offset_diff_bytes) - 1;
+-         offset_diff = offset_diff_bytes >> offset_shift;
++         offset_shift = ffs(offset) - 1;
++         offset_diff = offset >> offset_shift;
+          base_shift = cur_offset_shift - offset_shift;
+       }
+    } else {
+-- 
+2.54.0 (Apple Git-157)
+

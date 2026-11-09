@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Hans-Kristian Arntzen <post@arntzen-software.no>
+Date: Tue, 11 Aug 2026 18:53:19 +0200
+Subject: [PATCH] radv: Prefer STRUCTURED OOB over STRUCTURED_OFFSET for texel
+ buffers.
+
+Works around a game bug in IL-2: Korea that works on D3D12 AMD native
+drivers. Also aligns OOB behavior with pre-gfx10 which is useful to
+avoid implementation variance when debugging games.
+
+Signed-off-by: Hans-Kristian Arntzen <post@arntzen-software.no>
+Reviewed-by: Samuel Pitoiset <samuel.pitoiset@gmail.com>
+Cc: mesa-stable
+(cherry picked from commit 2c9073912232b93eb9b60486edbd72d53e5f3d26)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit 8510e432c19d6e8026a96b5aff86bea6a6e53cbd)
+---
+ src/amd/vulkan/radv_buffer_view.c | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/vulkan/radv_buffer_view.c b/src/amd/vulkan/radv_buffer_view.c
+index 95c1764c8e9..de42b192134 100644
+--- a/src/amd/vulkan/radv_buffer_view.c
++++ b/src/amd/vulkan/radv_buffer_view.c
+@@ -36,6 +36,19 @@ radv_make_texel_buffer_descriptor(struct radv_device *device, uint64_t va, VkFor
+       range /= stride;
+    }
+ 
++   /* Previous code used SELECT_STRUCTURED_WITH_OFFSET.
++    * Both are valid options for texel buffers, but pick STRUCTURED
++    * for pragmatic reasons:
++    * - AMD D3D12 driver uses just STRUCTURED here.
++    *   This affects visible application behavior when attempting
++    *   to use 32-bit atomics on an R16_UINT view.
++    *   IL-2: Korea for example relies on this atomic to go through
++    *   as if the base texel buffer view is 32-bit, and it works by accident on D3D12 native driver.
++    *   It's possible for vkd3d-proton to workaround this quirk at significant complexity,
++    *   but if there are more direct methods available, this is the better place to do so.
++    * - Texel buffers never get intra-element offsets driven by application,
++    *   so _OFFSET OOB doesn't add much.
++    * - Matches pre-gfx10 behavior. */
+    const struct ac_buffer_state ac_state = {
+       .va = va,
+       .size = range,
+@@ -48,7 +61,7 @@ radv_make_texel_buffer_descriptor(struct radv_device *device, uint64_t va, VkFor
+             swizzle[3],
+          },
+       .stride = stride,
+-      .gfx10_oob_select = V_008F0C_OOB_SELECT_STRUCTURED_WITH_OFFSET,
++      .gfx10_oob_select = V_008F0C_OOB_SELECT_STRUCTURED,
+       .has_desc_resource_level = pdev->info.compiler_info.has_desc_resource_level,
+    };
+ 
+-- 
+2.54.0 (Apple Git-157)
+

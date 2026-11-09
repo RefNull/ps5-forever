@@ -1,0 +1,332 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Timur=20Krist=C3=B3f?= <timur.kristof@gmail.com>
+Date: Wed, 26 Aug 2026 01:11:45 +0200
+Subject: [PATCH] radv/nir: Don't fold constant offset into index VGPR for VS
+ inputs anymore
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On GFX6-7, use the SGPR offset to achieve correct bounds
+checking behaviour, because the constant offset is included
+in the bounds checking.
+
+On GFX8+, just use the constant offset as-is because it
+is not part of the bounds check.
+
+With this commit, the code can also be simplified because
+now each VS input load can be represented with just a single
+memory load instruction and we don't need to split them here
+anymore on GFX6-7.
+
+We can also remove the attribute index offset and stride.
+These are no longer needed because the index VGPR will
+now always be just the actual vertex or instance index.
+
+Cc: mesa-stable
+Signed-off-by: Timur Kristóf <timur.kristof@gmail.com>
+Reviewed-by: Rhys Perry <pendingchaos02@gmail.com>
+Acked-by: Marek Olšák <maraeo@gmail.com>
+(cherry picked from commit e27bfacb4720c6a50be0eaf648532a70593888f4)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44168>
+(cherry picked from commit cb711f671cd4bc8db7c6d0fa7d158a9a68897186)
+---
+ src/amd/vulkan/nir/radv_nir_lower_vs_inputs.c | 114 ++++++++----------
+ src/amd/vulkan/radv_cmd_buffer.c              |   6 -
+ src/amd/vulkan/radv_cmd_buffer.h              |   1 -
+ src/amd/vulkan/radv_dgc.c                     |  10 +-
+ src/amd/vulkan/radv_pipeline_graphics.c       |  20 ---
+ src/amd/vulkan/radv_pipeline_graphics.h       |   1 -
+ src/amd/vulkan/radv_shader.h                  |   1 -
+ 7 files changed, 50 insertions(+), 103 deletions(-)
+
+diff --git a/src/amd/vulkan/nir/radv_nir_lower_vs_inputs.c b/src/amd/vulkan/nir/radv_nir_lower_vs_inputs.c
+index 28ec8eff30e..02b09d972ef 100644
+--- a/src/amd/vulkan/nir/radv_nir_lower_vs_inputs.c
++++ b/src/amd/vulkan/nir/radv_nir_lower_vs_inputs.c
+@@ -265,7 +265,6 @@ lower_load_vs_input(nir_builder *b, nir_intrinsic_instr *intrin, lower_vs_inputs
+ 
+    const uint32_t attrib_binding = s->gfx_state->vi.vertex_attribute_bindings[location];
+    const uint32_t attrib_offset = s->gfx_state->vi.vertex_attribute_offsets[location];
+-   const uint32_t attrib_stride = s->gfx_state->vi.vertex_attribute_strides[location];
+    const enum pipe_format attrib_format = adjust_format(s->gfx_state->vi.vertex_attribute_formats[location]);
+    const struct util_format_description *f = util_format_description(attrib_format);
+    const struct ac_vtx_format_info *vtx_info = ac_get_vtx_format_info(
+@@ -313,85 +312,68 @@ lower_load_vs_input(nir_builder *b, nir_intrinsic_instr *intrin, lower_vs_inputs
+ 
+    /* Load VS inputs from VRAM.
+     *
+-    * For the vast majority of cases this will only create 1x load_(typed)_buffer_amd
+-    * intrinsic and the backend is responsible for further splitting that
++    * Only create 1x load_(typed)_buffer_amd when necessary.
++    * The backend is responsible for further splitting that
+     * to as many HW instructions as needed based on alignment.
+-    *
+-    * Take care to prevent loaded components from failing the range check,
+-    * by emitting several load intrinsics with different index sources.
+-    * This is necessary because the backend can't further roll the const offset
+-    * into the index source of MUBUF / MTBUF instructions.
+     */
+-   nir_def *loads[NIR_MAX_VEC_COMPONENTS] = {0};
+-   unsigned num_loads = 0;
+-   for (unsigned x = 0, channels; x < fetch_num_channels; x += channels) {
+-      channels = fetch_num_channels - x;
+-      const unsigned start = skipped_start + x;
+-      enum pipe_format fetch_format = attrib_format;
+-      nir_def *index = base_index;
+-
+-      /* Add excess constant offset to the index. */
+-      unsigned const_off = attrib_offset + high_dvec2 * 16 + count_format_bytes(f, 0, start);
+-      if (attrib_stride && const_off >= attrib_stride) {
+-         index = nir_iadd_imm(b, base_index, const_off / attrib_stride);
+-         const_off %= attrib_stride;
+-      }
+-
+-      /* Reduce the number of loaded channels until we can pass the range check.
+-       * Only for array formats. VK spec mandates proper alignment for packed formats.
+-       * Note, NONE seems to occur in real use and is considered an array format.
+-       */
+-      if (f->is_array && fetch_format != PIPE_FORMAT_NONE) {
+-         while (channels > 1 && attrib_stride && (const_off + count_format_bytes(f, start, channels)) > attrib_stride) {
+-            channels--;
+-         }
+-
+-         /* Keep the fetch format as large as possible to let the backend emit
+-          * larger load instructions when it deems them beneficial.
+-          */
+-         fetch_format = util_format_get_array(f->channel[0].type, f->channel[0].size, f->nr_channels - start,
+-                                              f->is_unorm || f->is_snorm, f->channel[0].pure_integer);
+-      }
+-
+-      assert(f->is_array || channels == fetch_num_channels);
+-
+-      unsigned align_mul = MAX2(1, s->gfx_state->vi.vertex_binding_align[attrib_binding]);
+-      unsigned align_offset = const_off % align_mul;
+-
+-      /* The alignment might be lower than the minimum if it's unknown. */
+-      const unsigned min_channel_align = vtx_info->chan_byte_size ? vtx_info->chan_byte_size : vtx_info->element_size;
+-      if (nir_combined_align(align_mul, align_offset) < min_channel_align) {
+-         align_mul = min_channel_align;
+-         align_offset = 0;
+-      }
++   nir_def *load = NULL;
++   enum pipe_format fetch_format = attrib_format;
++
++   const unsigned base_offset = attrib_offset + high_dvec2 * 16;
++   const unsigned skipped_elements = MIN2(skipped_start, f->nr_channels - 1);
++   const unsigned offset_within_element = count_format_bytes(f, 0, skipped_elements);
++
++   unsigned inst_offset = 0;
++   nir_def *sgpr_offset = zero;
++
++   /* Bounds checking behaviour:
++    * GFX10+: can select different modes, we use OOB_SELECT_STRUCTURED
++    * GFX8-9: equivalent to OOB_SELECT_STRUCTURED
++    * GFX6-7: equivalent to OOB_SELECT_STRUCTURED_WITH_OFFSET,
++    *         which means we should avoid using the instruction offset
++    *         because it is included in the bounds check
++    */
++   if (s->compiler_info->ac->gfx_level >= GFX8)
++      inst_offset = base_offset + offset_within_element;
++   else
++      sgpr_offset = nir_imm_int(b, base_offset + offset_within_element);
++
++   unsigned align_mul = MAX2(1, s->gfx_state->vi.vertex_binding_align[attrib_binding]);
++   unsigned align_offset = (base_offset + offset_within_element) % align_mul;
++
++   /* The alignment might be lower than the minimum if it's unknown. */
++   const unsigned min_channel_align = vtx_info->chan_byte_size ? vtx_info->chan_byte_size : vtx_info->element_size;
++   if (nir_combined_align(align_mul, align_offset) < min_channel_align) {
++      align_mul = min_channel_align;
++      align_offset = 0;
++   }
+ 
+-      /* Prefer using untyped buffer loads if possible, to avoid potential alignment issues.
+-       * Typed loads can cause GPU hangs when used with improper alignment.
+-       */
++   /* Prefer using untyped buffer loads if possible, to avoid potential alignment issues.
++    * Typed loads can cause GPU hangs when used with improper alignment.
++    */
++   if (fetch_num_channels) {
+       if (can_use_untyped_load(f, bit_size)) {
+-         loads[num_loads++] = nir_load_buffer_amd(
+-            b, channels, bit_size, descriptor, zero, zero, index, .base = const_off, .memory_modes = nir_var_shader_in,
+-            .align_mul = align_mul, .align_offset = align_offset, .access = ACCESS_CAN_REORDER | ACCESS_CAN_SPECULATE);
++         load = nir_load_buffer_amd(b, fetch_num_channels, bit_size, descriptor, zero, sgpr_offset, base_index,
++                                    .base = inst_offset, .memory_modes = nir_var_shader_in, .align_mul = align_mul,
++                                    .align_offset = align_offset, .access = ACCESS_CAN_REORDER | ACCESS_CAN_SPECULATE);
+       } else {
+-         loads[num_loads++] = nir_load_typed_buffer_amd(
+-            b, channels, bit_size, descriptor, zero, zero, index, .base = const_off, .format = fetch_format,
+-            .align_mul = align_mul, .align_offset = align_offset, .memory_modes = nir_var_shader_in,
+-            .access = ACCESS_CAN_REORDER | ACCESS_CAN_SPECULATE);
++         load = nir_load_typed_buffer_amd(b, fetch_num_channels, bit_size, descriptor, zero, sgpr_offset, base_index,
++                                          .base = inst_offset, .format = fetch_format, .align_mul = align_mul,
++                                          .align_offset = align_offset, .memory_modes = nir_var_shader_in,
++                                          .access = ACCESS_CAN_REORDER | ACCESS_CAN_SPECULATE);
+       }
+    }
+ 
+-   nir_def *load = loads[0];
+-
+    /* Extract the channels we actually need when we couldn't skip starting
+     * components or had to emit more than one load intrinsic.
+     */
+-   if (num_loads > 0 && (first_used_channel > skipped_start || num_loads != 1))
+-      load = nir_extract_bits(b, loads, num_loads, (first_used_channel - skipped_start) * bit_size,
++   if (load && (first_used_channel > skipped_start))
++      load = nir_extract_bits(b, &load, 1, (first_used_channel - skipped_start) * bit_size,
+                               max_loaded_channels - first_used_channel, bit_size);
+ 
+    /* Return early if possible to avoid generating unnecessary IR. */
+-   if (num_loads > 0 && first_used_channel == component && load->num_components == dest_num_components &&
+-       !needs_swizzle && alpha_adjust == AC_ALPHA_ADJUST_NONE)
++   if (load && first_used_channel == component && load->num_components == dest_num_components && !needs_swizzle &&
++       alpha_adjust == AC_ALPHA_ADJUST_NONE)
+       return load;
+ 
+    /* Fill unused and OOB components.
+diff --git a/src/amd/vulkan/radv_cmd_buffer.c b/src/amd/vulkan/radv_cmd_buffer.c
+index 9f2fea98a19..f475d8d4671 100644
+--- a/src/amd/vulkan/radv_cmd_buffer.c
++++ b/src/amd/vulkan/radv_cmd_buffer.c
+@@ -6898,7 +6898,6 @@ radv_get_vbo_info(const struct radv_cmd_buffer *cmd_buffer, uint32_t idx, struct
+    vbo_info->stride = d->vk.vi_binding_strides[binding];
+ 
+    vbo_info->attrib_offset = d->vertex_input.offsets[idx];
+-   vbo_info->attrib_index_offset = d->vertex_input.attrib_index_offset[idx];
+    vbo_info->attrib_format_size = d->vertex_input.format_sizes[idx];
+    vbo_info->non_trivial_format = d->vertex_input.non_trivial_format[idx];
+ }
+@@ -6969,11 +6968,6 @@ radv_write_vertex_descriptor(const struct radv_cmd_buffer *cmd_buffer, const str
+          num_records = 1; /* only one vertex */
+       } else {
+          num_records = (num_records - attrib_end) / stride + 1;
+-         /* If attrib_offset>stride, then the compiler will increase the vertex index by
+-          * attrib_offset/stride and decrease the offset by attrib_offset%stride. This is
+-          * only allowed with static strides.
+-          */
+-         num_records += vbo_info.attrib_index_offset;
+       }
+ 
+       /* GFX10 uses OOB_SELECT_RAW if stride==0, so convert num_records from elements into
+diff --git a/src/amd/vulkan/radv_cmd_buffer.h b/src/amd/vulkan/radv_cmd_buffer.h
+index 93d3af3248f..67e7fb37c36 100644
+--- a/src/amd/vulkan/radv_cmd_buffer.h
++++ b/src/amd/vulkan/radv_cmd_buffer.h
+@@ -872,7 +872,6 @@ struct radv_vbo_info {
+    uint32_t size;
+ 
+    uint32_t attrib_offset;
+-   uint32_t attrib_index_offset;
+    uint32_t attrib_format_size;
+ 
+    uint32_t non_trivial_format;
+diff --git a/src/amd/vulkan/radv_dgc.c b/src/amd/vulkan/radv_dgc.c
+index 8ab6cb90d76..10cc2c7bbef 100644
+--- a/src/amd/vulkan/radv_dgc.c
++++ b/src/amd/vulkan/radv_dgc.c
+@@ -1892,7 +1892,6 @@ struct dgc_vbo_info {
+    nir_def *stride;
+ 
+    nir_def *attrib_end;
+-   nir_def *attrib_index_offset;
+ 
+    nir_def *non_trivial_format;
+ };
+@@ -1945,11 +1944,8 @@ dgc_write_vertex_descriptor(struct dgc_cmdbuf *cs, const struct dgc_vbo_info *vb
+       }
+       nir_push_else(b, NULL);
+       {
+-         nir_def *r = nir_iadd(
+-            b,
+-            nir_iadd_imm(
+-               b, nir_udiv(b, nir_isub(b, nir_load_var(b, num_records), vbo_info->attrib_end), vbo_info->stride), 1),
+-            vbo_info->attrib_index_offset);
++         nir_def *r = nir_iadd_imm(
++            b, nir_udiv(b, nir_isub(b, nir_load_var(b, num_records), vbo_info->attrib_end), vbo_info->stride), 1);
+          nir_store_var(b, num_records, r, 0x1);
+       }
+       nir_pop_if(b, NULL);
+@@ -2083,7 +2079,6 @@ dgc_emit_vertex_buffer(struct dgc_cmdbuf *cs, nir_def *stream_addr)
+       }
+       nir_pop_if(b, NULL);
+ 
+-      nir_def *attrib_index_offset = load_vbo_metadata32(cs, cur_idx, attrib_index_offset);
+       nir_def *non_trivial_format = load_vbo_metadata32(cs, cur_idx, non_trivial_format);
+       nir_def *attrib_offset = load_vbo_metadata32(cs, cur_idx, attrib_offset);
+       nir_def *attrib_format_size = load_vbo_metadata32(cs, cur_idx, attrib_format_size);
+@@ -2098,7 +2093,6 @@ dgc_emit_vertex_buffer(struct dgc_cmdbuf *cs, nir_def *stream_addr)
+          .size = nir_load_var(b, size_var),
+          .stride = nir_load_var(b, stride_var),
+          .attrib_end = attrib_end,
+-         .attrib_index_offset = attrib_index_offset,
+          .non_trivial_format = non_trivial_format,
+       };
+ 
+diff --git a/src/amd/vulkan/radv_pipeline_graphics.c b/src/amd/vulkan/radv_pipeline_graphics.c
+index 05099350d4c..817bdd88713 100644
+--- a/src/amd/vulkan/radv_pipeline_graphics.c
++++ b/src/amd/vulkan/radv_pipeline_graphics.c
+@@ -774,10 +774,6 @@ radv_pipeline_init_vertex_input_state(const struct radv_device *device, struct r
+          dynamic->vertex_input.bindings[i] = binding;
+          dynamic->vertex_input.bindings_match_attrib &= binding == i;
+ 
+-         if (state->vi->bindings[binding].stride) {
+-            dynamic->vertex_input.attrib_index_offset[i] = offset / state->vi->bindings[binding].stride;
+-         }
+-
+          if (state->vi->bindings[binding].input_rate) {
+             dynamic->vertex_input.instance_rate_inputs |= BITFIELD_BIT(i);
+             dynamic->vertex_input.divisors[i] = state->vi->bindings[binding].divisor;
+@@ -1679,22 +1675,6 @@ radv_generate_graphics_state_key(const struct radv_compiler_info *compiler_info,
+          key.vi.vertex_attribute_offsets[i] = offset;
+          key.vi.instance_rate_divisors[i] = state->vi->bindings[binding].divisor;
+ 
+-         /* vertex_attribute_strides is only needed to workaround GFX6/7 offset>=stride checks. */
+-         if (!BITSET_TEST(state->dynamic, MESA_VK_DYNAMIC_VI_BINDING_STRIDES) && compiler_info->ac->gfx_level < GFX8) {
+-            /* From the Vulkan spec 1.2.157:
+-             *
+-             * "If the bound pipeline state object was created with the
+-             * VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE dynamic state enabled then pStrides[i]
+-             * specifies the distance in bytes between two consecutive elements within the
+-             * corresponding buffer. In this case the VkVertexInputBindingDescription::stride state
+-             * from the pipeline state object is ignored."
+-             *
+-             * Make sure the vertex attribute stride is zero to avoid computing a wrong offset if
+-             * it's initialized to something else than zero.
+-             */
+-            key.vi.vertex_attribute_strides[i] = state->vi->bindings[binding].stride;
+-         }
+-
+          if (state->vi->bindings[binding].input_rate) {
+             key.vi.instance_rate_inputs |= 1u << i;
+          }
+diff --git a/src/amd/vulkan/radv_pipeline_graphics.h b/src/amd/vulkan/radv_pipeline_graphics.h
+index 36ef2f41363..2483e013739 100644
+--- a/src/amd/vulkan/radv_pipeline_graphics.h
++++ b/src/amd/vulkan/radv_pipeline_graphics.h
+@@ -72,7 +72,6 @@ struct radv_vertex_input_state {
+    uint8_t format_align_req_minus_1[MAX_VERTEX_ATTRIBS];
+    uint8_t component_align_req_minus_1[MAX_VERTEX_ATTRIBS];
+    uint8_t format_sizes[MAX_VERTEX_ATTRIBS];
+-   uint32_t attrib_index_offset[MAX_VERTEX_ATTRIBS]; /* Only used with static strides. */
+    uint32_t non_trivial_format[MAX_VERTEX_ATTRIBS];
+ 
+    uint32_t vbo_misaligned_mask;
+diff --git a/src/amd/vulkan/radv_shader.h b/src/amd/vulkan/radv_shader.h
+index 5e8dc4fa024..768633dfb61 100644
+--- a/src/amd/vulkan/radv_shader.h
++++ b/src/amd/vulkan/radv_shader.h
+@@ -157,7 +157,6 @@ struct radv_graphics_state_key {
+       uint8_t vertex_attribute_formats[MAX_VERTEX_ATTRIBS];
+       uint32_t vertex_attribute_bindings[MAX_VERTEX_ATTRIBS];
+       uint32_t vertex_attribute_offsets[MAX_VERTEX_ATTRIBS];
+-      uint32_t vertex_attribute_strides[MAX_VERTEX_ATTRIBS];
+       uint8_t vertex_binding_align[MAX_VBS];
+    } vi;
+ 
+-- 
+2.54.0 (Apple Git-157)
+

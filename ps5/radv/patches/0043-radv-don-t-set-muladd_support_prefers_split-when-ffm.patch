@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rhys Perry <pendingchaos02@gmail.com>
+Date: Fri, 28 Aug 2026 17:46:29 +0100
+Subject: [PATCH] radv: don't set muladd_support_prefers_split when ffma is
+ unsupported
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Fixes assertion failure in validate_float_mul_add() when replaying
+shadow_of_the_tomb_raider_dx12/15045921c7c476ce for GFX6/7.
+
+Signed-off-by: Rhys Perry <pendingchaos02@gmail.com>
+Fixes: 6cf3cba68cb ("radv: use nir_op_ffma_weak")
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+Reviewed-by: Timur Kristóf <timur.kristof@gmail.com>
+(cherry picked from commit 966f6980c0f6c78e2c86ac9b87341b5e61ff68c9)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44489>
+(cherry picked from commit b2ae00dc3c25a51a651183c98d44167f0edae3bc)
+---
+ src/amd/vulkan/radv_shader.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/vulkan/radv_shader.c b/src/amd/vulkan/radv_shader.c
+index 45e57580a07..fb84e04b801 100644
+--- a/src/amd/vulkan/radv_shader.c
++++ b/src/amd/vulkan/radv_shader.c
+@@ -61,7 +61,8 @@ get_nir_options_for_stage(struct radv_compiler_info *compiler_info, mesa_shader_
+    ac_nir_set_options(compiler_info->ac, compiler_info->key.use_llvm, options);
+ 
+    if (split_fma) {
+-      options->float_mul_add16 |= nir_float_muladd_support_prefers_split;
++      if (options->float_mul_add16 & nir_float_muladd_support_has_ffma)
++         options->float_mul_add16 |= nir_float_muladd_support_prefers_split;
+       options->float_mul_add32 |= nir_float_muladd_support_prefers_split;
+       options->float_mul_add64 |= nir_float_muladd_support_prefers_split;
+    }
+-- 
+2.54.0 (Apple Git-157)
+

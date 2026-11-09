@@ -1,0 +1,129 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rhys Perry <pendingchaos02@gmail.com>
+Date: Mon, 10 Aug 2026 15:08:52 +0100
+Subject: [PATCH] nir: add deref_buffer_address
+
+Signed-off-by: Rhys Perry <pendingchaos02@gmail.com>
+Backport-to: 26.2
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+(cherry picked from commit c7e9865f39a07d5b84850f4f7149f5ee2172b66e)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44168>
+(cherry picked from commit 6e1ea83f122d4f9cd059f04ea9c249a3838551c3)
+---
+ src/compiler/nir/nir_convert_address_format.c |  1 +
+ src/compiler/nir/nir_divergence_analysis.c    |  1 +
+ src/compiler/nir/nir_intrinsics.py            |  6 +++++-
+ src/compiler/nir/nir_lower_explicit_io.c      | 21 +++++++++++++++++--
+ .../runtime/vk_nir_lower_descriptor_heaps.c   |  1 +
+ 5 files changed, 27 insertions(+), 3 deletions(-)
+
+diff --git a/src/compiler/nir/nir_convert_address_format.c b/src/compiler/nir/nir_convert_address_format.c
+index fe805f5d757..3dd1293a2ae 100644
+--- a/src/compiler/nir/nir_convert_address_format.c
++++ b/src/compiler/nir/nir_convert_address_format.c
+@@ -99,6 +99,7 @@ convert_def(nir_builder *b, nir_def *def, convert_address_format_state *state)
+          case nir_intrinsic_load_deref:
+          case nir_intrinsic_load_deref_block_intel:
+          case nir_intrinsic_deref_buffer_array_length:
++         case nir_intrinsic_deref_buffer_address:
+          case nir_intrinsic_deref_mode_is:
+          case nir_intrinsic_launch_mesh_workgroups_with_payload_deref:
+             /* These support any address format. */
+diff --git a/src/compiler/nir/nir_divergence_analysis.c b/src/compiler/nir/nir_divergence_analysis.c
+index 8712e7ab7c2..2be39fd1c75 100644
+--- a/src/compiler/nir/nir_divergence_analysis.c
++++ b/src/compiler/nir/nir_divergence_analysis.c
+@@ -704,6 +704,7 @@ visit_intrinsic(nir_intrinsic_instr *instr, struct divergence_state *state)
+    case nir_intrinsic_get_ssbo_size:
+    case nir_intrinsic_ssbo_descriptor_amd:
+    case nir_intrinsic_deref_buffer_array_length:
++   case nir_intrinsic_deref_buffer_address:
+       is_divergent = src_divergent(instr->src[0], state) &&
+                      (nir_intrinsic_access(instr) & ACCESS_NON_UNIFORM);
+       break;
+diff --git a/src/compiler/nir/nir_intrinsics.py b/src/compiler/nir/nir_intrinsics.py
+index 6689ef5a1c5..35d2426656e 100644
+--- a/src/compiler/nir/nir_intrinsics.py
++++ b/src/compiler/nir/nir_intrinsics.py
+@@ -469,6 +469,10 @@ intrinsic("interp_deref_at_vertex", src_comp=[1, 1], dest_comp=0,
+ intrinsic("deref_buffer_array_length", src_comp=[-1], dest_comp=1,
+           indices=[ACCESS], flags=[CAN_ELIMINATE, CAN_REORDER])
+ 
++# Gets the address of a buffer
++intrinsic("deref_buffer_address", src_comp=[-1], dest_comp=0,
++          indices=[ACCESS], flags=[CAN_ELIMINATE, CAN_REORDER])
++
+ # Gets the length of an unsized array
+ intrinsic("deref_implicit_array_length", src_comp=[-1], dest_comp=1,
+           flags=[CAN_ELIMINATE, CAN_REORDER])
+@@ -1321,7 +1325,7 @@ load("per_primitive_input", [1], [BASE, COMPONENT, DEST_TYPE, IO_SEMANTICS], [CA
+ # src[] = { buffer_index, offset }.
+ load("ssbo", [-1, 1], [ACCESS, ALIGN_MUL, ALIGN_OFFSET, OFFSET_SHIFT], [CAN_ELIMINATE])
+ # src[] = { buffer_index, offset }
+-load("ssbo_address", [-1, 1], [], [CAN_ELIMINATE, CAN_REORDER])
++load("ssbo_address", [-1, 1], [ACCESS], [CAN_ELIMINATE, CAN_REORDER])
+ # src[] = { offset }.
+ load("output", [1], [BASE, RANGE, COMPONENT, DEST_TYPE, IO_SEMANTICS], flags=[CAN_ELIMINATE])
+ # src[] = { offset }.
+diff --git a/src/compiler/nir/nir_lower_explicit_io.c b/src/compiler/nir/nir_lower_explicit_io.c
+index 97372ed0b0b..143a9c83af8 100644
+--- a/src/compiler/nir/nir_lower_explicit_io.c
++++ b/src/compiler/nir/nir_lower_explicit_io.c
+@@ -1395,7 +1395,8 @@ static unsigned
+ get_max_shift(nir_intrinsic_instr *intrin,
+               const nir_shader_compiler_options *options)
+ {
+-   if (options->max_offset_shift) {
++   if (intrin->intrinsic != nir_intrinsic_deref_buffer_address &&
++       options->max_offset_shift) {
+       return options->max_offset_shift(intrin, options->cb_data);
+    }
+ 
+@@ -1444,6 +1445,21 @@ nir_lower_explicit_io_instr(nir_builder *b,
+ {
+    b->cursor = nir_after_instr(&intrin->instr);
+ 
++   if (intrin->intrinsic == nir_intrinsic_deref_buffer_address) {
++      nir_io_offset addr = build_addr(b, intrin, base_addr, addr_format, 0, 1, 0);
++      if (addr_format_is_global(addr_format, nir_var_mem_ssbo)) {
++         nir_def_replace(&intrin->def, addr_to_global(b, addr.def, addr_format));
++      } else {
++         nir_def *index = addr_to_index(b, addr.def, addr_format);
++         nir_def *offset = addr_to_offset(b, addr.def, addr_format);
++         nir_def *res = nir_load_ssbo_address(b, intrin->def.num_components,
++                                              intrin->def.bit_size, index, offset,
++                                              .access = nir_intrinsic_access(intrin));
++         nir_def_replace(&intrin->def, res);
++      }
++      return;
++   }
++
+    nir_deref_instr *deref = nir_src_as_deref(intrin->src[0]);
+    unsigned vec_stride = glsl_get_explicit_stride(deref->type);
+    unsigned scalar_size = type_scalar_size_bytes(deref->type);
+@@ -1820,7 +1836,8 @@ nir_lower_explicit_io_impl(nir_function_impl *impl, nir_variable_mode modes,
+             case nir_intrinsic_store_deref_block_intel:
+             case nir_intrinsic_load_deref_transpose_amd:
+             case nir_intrinsic_deref_atomic:
+-            case nir_intrinsic_deref_atomic_swap: {
++            case nir_intrinsic_deref_atomic_swap:
++            case nir_intrinsic_deref_buffer_address: {
+                nir_deref_instr *deref = nir_src_as_deref(intrin->src[0]);
+                if (nir_deref_mode_is_in_set(deref, modes)) {
+                   lower_explicit_io_access(&b, intrin, addr_format);
+diff --git a/src/vulkan/runtime/vk_nir_lower_descriptor_heaps.c b/src/vulkan/runtime/vk_nir_lower_descriptor_heaps.c
+index b832cda5761..1bc39c3a477 100644
+--- a/src/vulkan/runtime/vk_nir_lower_descriptor_heaps.c
++++ b/src/vulkan/runtime/vk_nir_lower_descriptor_heaps.c
+@@ -1042,6 +1042,7 @@ lower_heaps_intrin(nir_builder *b, nir_intrinsic_instr *intrin,
+    case nir_intrinsic_store_deref_block_intel:
+    case nir_intrinsic_deref_atomic:
+    case nir_intrinsic_deref_atomic_swap:
++   case nir_intrinsic_deref_buffer_address:
+       return try_lower_heaps_deref_access(b, intrin, ctx);
+ 
+    case nir_intrinsic_load_buffer_ptr_deref:
+-- 
+2.54.0 (Apple Git-157)
+

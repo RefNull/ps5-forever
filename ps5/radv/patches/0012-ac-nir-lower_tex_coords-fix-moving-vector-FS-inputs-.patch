@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rhys Perry <pendingchaos02@gmail.com>
+Date: Wed, 5 Aug 2026 10:43:00 +0100
+Subject: [PATCH] ac/nir/lower_tex_coords: fix moving vector FS inputs loads
+
+RADV usually lowers these to scalar, but they can happen with
+VK_PIPELINE_CREATE_2_DISABLE_OPTIMIZATION_BIT.
+
+Signed-off-by: Rhys Perry <pendingchaos02@gmail.com>
+Fixes: ac33f82d54b ("ac/nir/lower_tex_coords: move input loads instead of cloning them")
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+(cherry picked from commit 78e5e841bee9fba45676b6ea9e18afb3ccb1d6e9)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/43884>
+(cherry picked from commit 245fe323e816e5058a3d9c8b15d2e92f8d545bf7)
+---
+ src/amd/common/nir/ac_nir_lower_tex_coords.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/amd/common/nir/ac_nir_lower_tex_coords.c b/src/amd/common/nir/ac_nir_lower_tex_coords.c
+index ed515bc9bbb..fe909187156 100644
+--- a/src/amd/common/nir/ac_nir_lower_tex_coords.c
++++ b/src/amd/common/nir/ac_nir_lower_tex_coords.c
+@@ -342,7 +342,7 @@ build_coordinate(struct move_tex_coords_state *state, nir_scalar scalar, coord_i
+       }
+    }
+ 
+-   return &info.load->def;
++   return nir_mov_scalar(b, scalar);
+ }
+ 
+ static bool can_optimize_txd(nir_shader *shader, struct loop_if_state *loop_if, nir_tex_instr *tex,
+-- 
+2.54.0 (Apple Git-157)
+

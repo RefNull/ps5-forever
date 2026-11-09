@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Rhys Perry <pendingchaos02@gmail.com>
+Date: Mon, 10 Aug 2026 15:11:03 +0100
+Subject: [PATCH] ac/nir: implement load_ssbo_address
+
+Signed-off-by: Rhys Perry <pendingchaos02@gmail.com>
+Backport-to: 26.2
+Reviewed-by: Georg Lehmann <dadschoorse@gmail.com>
+(cherry picked from commit c393734520d9a2b5ad1dfb1f2e5d6afe4550bce8)
+
+Part-of: <https://gitlab.freedesktop.org/mesa/mesa/-/merge_requests/44168>
+(cherry picked from commit eea31de188704790e6c858a5af3bdf4e73fa1889)
+---
+ src/amd/common/nir/ac_nir_lower_resinfo.c | 17 +++++++++++++----
+ src/compiler/nir/nir_gather_info.c        |  1 +
+ 2 files changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/src/amd/common/nir/ac_nir_lower_resinfo.c b/src/amd/common/nir/ac_nir_lower_resinfo.c
+index d0915843d78..7b78cd30d5e 100644
+--- a/src/amd/common/nir/ac_nir_lower_resinfo.c
++++ b/src/amd/common/nir/ac_nir_lower_resinfo.c
+@@ -238,15 +238,24 @@ static bool lower_resinfo(nir_builder *b, nir_instr *instr, void *data)
+    nir_def *result = NULL;
+ 
+    if (instr->type == nir_instr_type_intrinsic &&
+-       nir_instr_as_intrinsic(instr)->intrinsic == nir_intrinsic_get_ssbo_size) {
+-      /* Lower get_ssbo_size to ssbo_descriptor_amd. */
++       (nir_instr_as_intrinsic(instr)->intrinsic == nir_intrinsic_get_ssbo_size ||
++        nir_instr_as_intrinsic(instr)->intrinsic == nir_intrinsic_load_ssbo_address)) {
++      /* Lower get_ssbo_size/load_ssbo_address to ssbo_descriptor_amd. */
+       nir_intrinsic_instr *intr = nir_instr_as_intrinsic(instr);
+ 
+       b->cursor = nir_before_instr(instr);
+ 
+       nir_def *desc = nir_ssbo_descriptor_amd(b, intr->src[0].ssa,
+                                               .access = nir_intrinsic_access(intr));
+-      result = nir_u2uN(b, nir_channel(b, desc, 2), nir_instr_def(instr)->bit_size);
++
++      if (intr->intrinsic == nir_intrinsic_get_ssbo_size) {
++         result = nir_u2uN(b, nir_channel(b, desc, 2), nir_instr_def(instr)->bit_size);
++      } else {
++         nir_def *addr_lo = nir_channel(b, desc, 0);
++         nir_def *addr_hi = nir_ibfe_imm(b, nir_channel(b, desc, 1), 0, 16);
++         nir_def *addr = nir_pack_64_2x32_split(b, addr_lo, addr_hi);
++         result = nir_iadd_nuw(b, addr, nir_u2u64(b, intr->src[1].ssa));
++      }
+    } else if (instr->type == nir_instr_type_intrinsic) {
+       nir_intrinsic_instr *intr = nir_instr_as_intrinsic(instr);
+       const struct glsl_type *type;
+@@ -387,7 +396,7 @@ static bool lower_resinfo(nir_builder *b, nir_instr *instr, void *data)
+       return false;
+ 
+    nir_def *dst = nir_instr_def(instr);
+-   assert(dst->bit_size == 32 || dst->bit_size == 16);
++   assert(dst->bit_size >= 16);
+    if (dst->bit_size == 16)
+       result = nir_u2u16(b, result);
+ 
+diff --git a/src/compiler/nir/nir_gather_info.c b/src/compiler/nir/nir_gather_info.c
+index 77d9e1c3b1e..b625b1f6414 100644
+--- a/src/compiler/nir/nir_gather_info.c
++++ b/src/compiler/nir/nir_gather_info.c
+@@ -951,6 +951,7 @@ gather_intrinsic_info(nir_intrinsic_instr *instr, nir_shader *shader)
+           instr->intrinsic == nir_intrinsic_bindless_image_samples ||
+           instr->intrinsic == nir_intrinsic_get_ubo_size ||
+           instr->intrinsic == nir_intrinsic_get_ssbo_size ||
++          instr->intrinsic == nir_intrinsic_load_ssbo_address ||
+           instr->intrinsic == nir_intrinsic_image_heap_levels ||
+           instr->intrinsic == nir_intrinsic_image_heap_size ||
+           instr->intrinsic == nir_intrinsic_image_heap_samples)
+-- 
+2.54.0 (Apple Git-157)
+
