@@ -152,6 +152,7 @@
   ],
   "sdk_revision": "fdb2763789a50a4fcc9a98dcae13f5e336c6a1ee",
   "radv_revision": "f10c4bac9b71c45a4c794ecc3c227eb6f6a56361",
+  "rust_toolchain": "1.99.1",
   "downloads": [
     {
       "name": "llvm-mingw",

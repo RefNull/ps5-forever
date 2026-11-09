@@ -10,6 +10,7 @@ import shlex
 import struct
 import shutil
 import subprocess
+import sys
 
 from runtime_imports import (
     B1_NATIVE_FORWARDED, B1_NATIVE_RESOLVERS, load_policy, make_records, module_manifest,
@@ -21,6 +22,9 @@ from runtime_profiles import (
 )
 
 here = Path(__file__).resolve().parent
+sys.path.append(str(here.parents[1] / 'release'))
+import pins  # noqa: E402  (ps5/release/pins.py: the deps.json reader)
+deps = pins.load()
 # ps5/build/gnutls-stage mirrors build-gnutls.sh's DESTDIR layout (the SDK's
 # absolute prefix under the stage directory).
 sdk_root = Path(os.environ.get('PS5_PAYLOAD_SDK', str(Path.home() / 'ps5-payload-sdk-platform')))
@@ -757,37 +761,27 @@ if args.profile == 'b1':
         shutil.copy2(source, destination)
     # Mozilla's root certificates (curl's extract), pinned as in
     # ps5/stage-wine.sh: crypt32 and so Chromium verify HTTPS against them.
-    cacert = here / '../../build/cacert-2026-11-05.pem'
+    roots = pins.download(deps, 'mozilla-roots')
+    cacert = here / '../../build' / roots['url'].rsplit('/', 1)[1]
     if not cacert.is_file():
         run(['curl', '--fail', '--silent', '--location', '--output', cacert.with_suffix('.part'),
-             'https://curl.se/ca/cacert-2026-11-05.pem'])
+             roots['url']])
         cacert.with_suffix('.part').rename(cacert)
-    if hashlib.sha256(cacert.read_bytes()).hexdigest() != (
-            '427c064216761a1e72a8b30f0d954d08cb6e4435a82091fb865afd20c8497285'):
+    if hashlib.sha256(cacert.read_bytes()).hexdigest() != roots['sha256']:
         raise SystemExit(f'pinned certificate bundle digest mismatch: {cacert}')
     shutil.copy2(cacert, tree / 'share/wine/cacert.pem')
     # The console has no system fonts: the same pinned fallback faces (CJK,
     # Thai, right-to-left) and notices ps5/stage-wine.sh gives payload Wine.
-    droid = 'https://raw.githubusercontent.com/aosp-mirror/platform_frameworks_base/android-4.4.4_r2/data/fonts'
-    noto = 'https://raw.githubusercontent.com/notofonts/noto-fonts/ffebf8c1ee449e544955a7e813c54f9b73848eac'
-    for name, digest, url in (
-            ('DroidSansFallbackLegacy.ttf', '82a74d0ef369ec7979172023cfff87f04f0a617a2871c39ef6aeb0f399c5cdaf',
-             f'{droid}/DroidSansFallbackLegacy.ttf'),
-            ('NotoSansThai-Regular.ttf', '404ddfb5ed0aaa6b6ec8a85700d682978992062d67da93903967b56cbd9a4acc',
-             f'{noto}/hinted/ttf/NotoSansThai/NotoSansThai-Regular.ttf'),
-            ('NotoSansArabic-Regular.ttf', 'ceea25b464a656dc3b26849bab9356740401af62aedf1bfa8b7f0d9b75925b1b',
-             f'{noto}/hinted/ttf/NotoSansArabic/NotoSansArabic-Regular.ttf'),
-            ('NotoSansHebrew-Regular.ttf', 'a7fa16fffb27bedb060a0866267c29e9859aeb9c21cc33f5b3aaf6eb062eca85',
-             f'{noto}/hinted/ttf/NotoSansHebrew/NotoSansHebrew-Regular.ttf'),
-            ('DroidSansFallback-NOTICE', '38751245389e1e23f73e6f5384b5cbe7fa972cc4410c5adc9c04b082a0b9561a',
-             f'{droid}/NOTICE'),
-            ('NotoSans-LICENSE', '0dab92d0544f7b233403f14b84a663bdbfa746982eda629e7f4f9ffe1b036feb',
-             f'{noto}/LICENSE')):
+    for name in ('DroidSansFallbackLegacy.ttf', 'NotoSansThai-Regular.ttf',
+                 'NotoSansArabic-Regular.ttf', 'NotoSansHebrew-Regular.ttf',
+                 'DroidSansFallback-NOTICE', 'NotoSans-LICENSE'):
+        font = pins.download(deps, name)
         cache = here / '../../build' / name
         if not cache.is_file():
-            run(['curl', '--fail', '--silent', '--location', '--output', cache.with_suffix('.part'), url])
+            run(['curl', '--fail', '--silent', '--location', '--output', cache.with_suffix('.part'),
+                 font['url']])
             cache.with_suffix('.part').rename(cache)
-        if hashlib.sha256(cache.read_bytes()).hexdigest() != digest:
+        if hashlib.sha256(cache.read_bytes()).hexdigest() != font['sha256']:
             raise SystemExit(f'pinned font asset digest mismatch: {cache}')
         shutil.copy2(cache, tree / 'share/wine/fonts' / name)
     # Forever Launcher keeps the user's prefix in /data/forever. forever-setup.h

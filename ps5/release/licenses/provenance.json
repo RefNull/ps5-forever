@@ -63,7 +63,7 @@
         "fonts/webdings.sfd",
         "fonts/wingding.sfd"
       ],
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "40fd1976ea82f088e53dc627c8b3cd46a3ca3b7c60cd0aa0b2c6284ff30b3208"
     },
@@ -330,7 +330,7 @@
     "PS5_PayloadSDK/COPYRIGHT-NOTICES.txt": {
       "component": "PS5_PayloadSDK",
       "path": "libc, platform/src, include, crt",
-      "revision": "a2dad143681dc4f31fd0b45d1f1f214a0667a23b",
+      "revision": "fdb2763789a50a4fcc9a98dcae13f5e336c6a1ee",
       "url": "https://github.com/bizkut/ps5-forever-sdk.git",
       "selection": "verbatim leading legal comments in C/C++/assembly/Rust source and headers; identical comments grouped",
       "sha256": "2ab399e74644fa3a16b08bd1dcb191bbe03bc282ae21981db27c19a8193ebecd"
@@ -338,14 +338,14 @@
     "PS5_PayloadSDK/LICENSE": {
       "component": "PS5_PayloadSDK",
       "path": "LICENSE",
-      "revision": "a2dad143681dc4f31fd0b45d1f1f214a0667a23b",
+      "revision": "fdb2763789a50a4fcc9a98dcae13f5e336c6a1ee",
       "url": "https://github.com/bizkut/ps5-forever-sdk.git",
       "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
     },
     "PS5_PayloadSDK/dlmalloc-LICENSE.txt": {
       "component": "dlmalloc 2.8.6",
       "path": "platform/src/dlmalloc/malloc.c",
-      "revision": "a2dad143681dc4f31fd0b45d1f1f214a0667a23b",
+      "revision": "fdb2763789a50a4fcc9a98dcae13f5e336c6a1ee",
       "url": "https://github.com/bizkut/ps5-forever-sdk.git",
       "lines": [
         1,
@@ -356,7 +356,7 @@
     "PS5_PayloadSDK/musl-COPYRIGHT.txt": {
       "component": "PS5_PayloadSDK",
       "path": "platform/src/regex/COPYRIGHT.musl",
-      "revision": "a2dad143681dc4f31fd0b45d1f1f214a0667a23b",
+      "revision": "fdb2763789a50a4fcc9a98dcae13f5e336c6a1ee",
       "url": "https://github.com/bizkut/ps5-forever-sdk.git",
       "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af"
     },
@@ -391,28 +391,28 @@
     "Wine/AUTHORS": {
       "component": "ps5-wine",
       "path": "AUTHORS",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "4e2f062fd9c658b60ba7c0000f88f08d2b8f1333fa7b1c37ec27859ecb2de59d"
     },
     "Wine/COPYING.LIB": {
       "component": "ps5-wine",
       "path": "COPYING.LIB",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "e237fa56668030e928551ddd60f05df5fe957f75eab874bbd017e085ed722e7c"
     },
     "Wine/LICENSE": {
       "component": "ps5-wine",
       "path": "LICENSE",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "ae025f125a5d639f0f7abe5146efa1e3d7453cc10b744b2910806fa3f46626ef"
     },
     "Wine/bundled/COPYRIGHT-NOTICES.txt": {
       "component": "ps5-wine",
       "path": "libs, fonts",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "selection": "verbatim leading legal comments in C/C++/assembly/Rust source and headers; identical comments grouped",
       "sha256": "cf8b0d44baba5a23b252adf1c16c7de43a7ac308e92ccdc36816093bfeb0e8b5"
@@ -420,140 +420,140 @@
     "Wine/bundled/capstone/LICENSE.TXT": {
       "component": "ps5-wine",
       "path": "libs/capstone/LICENSE.TXT",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "65e9ed46a59976eda8f5bd1ea79a680dea38dd299c760bc9a8d87a764ef5029b"
     },
     "Wine/bundled/capstone/LICENSE_LLVM.TXT": {
       "component": "ps5-wine",
       "path": "libs/capstone/LICENSE_LLVM.TXT",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "dfdca2d7fdbabfd937f9dc41b7f61647b0e6cb1f9ee767ecb4520f979ebe91da"
     },
     "Wine/bundled/compiler-rt/LICENSE.TXT": {
       "component": "ps5-wine",
       "path": "libs/compiler-rt/LICENSE.TXT",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "09e65c6534e75ec49cdc74fa894bfe4287bfbb1002be41fcad90110e9acd0984"
     },
     "Wine/bundled/faudio/LICENSE": {
       "component": "ps5-wine",
       "path": "libs/faudio/LICENSE",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "18325126e220d6898c4a8d1e3896a7b8c0e10e15b9d08bc6630f403bf4981215"
     },
     "Wine/bundled/fluidsynth/COPYING.txt": {
       "component": "ps5-wine",
       "path": "libs/fluidsynth/COPYING.md",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "db7d88e8584f98b5d393cc4ab60290c3d06cd3947d104b1c91ec95c140df89c6"
     },
     "Wine/bundled/gsm/COPYRIGHT": {
       "component": "ps5-wine",
       "path": "libs/gsm/COPYRIGHT",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "81c68a3374937ed9b5e4929c709e81a2c4b35b5d1f450ecf8c473e2daea46ff6"
     },
     "Wine/bundled/jpeg/LICENSE": {
       "component": "ps5-wine",
       "path": "libs/jpeg/LICENSE",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "1cb448f5e2e6d3aca60943f4eee1a04675628dc0266a074a42bc1560ebc28d61"
     },
     "Wine/bundled/jxr/LICENSE": {
       "component": "ps5-wine",
       "path": "libs/jxr/LICENSE",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "a645aa6019f2a0300dd5108b6679afb9fca0620ed06b8efe4bc1eb3d36799ada"
     },
     "Wine/bundled/lcms2/COPYING": {
       "component": "ps5-wine",
       "path": "libs/lcms2/COPYING",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "46d4e05af3bce75332a12d01f19bcce7e32b6bac544be28a64043d0231291e31"
     },
     "Wine/bundled/ldap/COPYRIGHT": {
       "component": "ps5-wine",
       "path": "libs/ldap/COPYRIGHT",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "0d60f0cfcce7c4d08ac12e677ed1223319cba6409682ba62a944f2cd37fb836a"
     },
     "Wine/bundled/ldap/LICENSE": {
       "component": "ps5-wine",
       "path": "libs/ldap/LICENSE",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "310fe25c858a9515fc8c8d7d1f24a67c9496f84a91e0a0e41ea9975b1371e569"
     },
     "Wine/bundled/mpg123/LICENSE": {
       "component": "ps5-wine",
       "path": "libs/mpg123/LICENSE",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "88cfbfd10c2b05905b84819502d8f494c925497507b13b60acd4e99fa85586dc"
     },
     "Wine/bundled/musl/COPYRIGHT": {
       "component": "ps5-wine",
       "path": "libs/musl/COPYRIGHT",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af"
     },
     "Wine/bundled/png/LICENSE": {
       "component": "ps5-wine",
       "path": "libs/png/LICENSE",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "16d9daaafbf63a31a5bdc91d4600972548fef5aaa1244202393288dbd079c49a"
     },
     "Wine/bundled/tiff/COPYRIGHT": {
       "component": "ps5-wine",
       "path": "libs/tiff/COPYRIGHT",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "fbd6fed7938541d2c809c0826225fc85e551fdbfa8732b10f0c87e0847acafd7"
     },
     "Wine/bundled/tomcrypt/LICENSE": {
       "component": "ps5-wine",
       "path": "libs/tomcrypt/LICENSE",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "1ba8f8006c93ac386e117f5721080192b2b29c1e3e8f75dfe577ff4e2c3459a8"
     },
     "Wine/bundled/vkd3d/COPYING": {
       "component": "ps5-wine",
       "path": "libs/vkd3d/COPYING",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "ba2942ea4fef8b3f674577cf100a2d44c44f237a6d9514067a776f6979dad1c5"
     },
     "Wine/bundled/xml2/COPYING": {
       "component": "ps5-wine",
       "path": "libs/xml2/COPYING",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "c5c63674f8a83c4d2e385d96d1c670a03cb871ba2927755467017317878574bd"
     },
     "Wine/bundled/xslt/COPYING": {
       "component": "ps5-wine",
       "path": "libs/xslt/COPYING",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "7e48e290b6bfccc2ec1b297023a1d77f2fd87417f71fbb9f50aabef40a851819"
     },
     "Wine/bundled/zlib/LICENSE": {
       "component": "ps5-wine",
       "path": "libs/zlib/LICENSE",
-      "revision": "b48aeb9d5eb6c6e7bf700c8d77e04e36ceef6328",
+      "revision": "01a7ca665585cc7f80da2edb4e02d029c86312b2",
       "url": "https://github.com/bizkut/ps5-forever-wine.git",
       "sha256": "845efc77857d485d91fb3e0b884aaa929368c717ae8186b66fe1ed2495753243"
     },

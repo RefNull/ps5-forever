@@ -2,6 +2,8 @@
 # Build in the pinned Ubuntu container; never uses the remote RADV build tree.
 set -euo pipefail
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# Every pin is read from deps.json; see pins.py.
+pin() { python3 "$here/pins.py" "$@"; }
 
 if [[ ${1:-} != --container ]]; then
     [[ $# == 2 || ( $# == 3 && $3 == --whisper-only ) ]] || {
@@ -49,7 +51,7 @@ export PACBREW_REPO=$root/pacbrew-repo
 export WINE_SRC=$root/ps5-proton/ps5-wine
 export PS5_PAYLOAD_SDK=$PS5_VULKAN/.deps/native/ps5-payload-sdk
 export PATH=$LLVM_MINGW/bin:$PATH
-export PS5_RADV_REVISION=${PS5_MESA_REVISION:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["radv_revision"])' "$here/deps.json")}
+export PS5_RADV_REVISION=${PS5_MESA_REVISION:-$(pin value radv_revision)}
 export FOREVER_BUILD_CACHE=${FOREVER_BUILD_CACHE:-$root/.cache}
 export FOREVER_CONTAINER_IMAGE_ID=${FOREVER_CONTAINER_IMAGE_ID:?container image ID is required}
 if [[ ${FOREVER_CLEAN_CACHE:-0} == 1 ]]; then
@@ -89,40 +91,7 @@ stage() {
     return "$status"
 }
 validate_sources() {
-    python3 - "$root" "$here/deps.json" "$tag" <<'PY'
-import hashlib, json, os, pathlib, re, subprocess, sys
-root, manifest = pathlib.Path(sys.argv[1]), json.load(open(sys.argv[2]))
-if not re.fullmatch(r'\d\d\.\d\d\d\.\d\d\d', sys.argv[3]):
-    raise SystemExit('tag must be NN.NNN.NNN')
-# Bind-mounted checkouts retain the host UID; trust only the manifest paths
-# in this disposable container, not arbitrary repositories.
-for source in [manifest['project'], *manifest['sources']]:
-    subprocess.run(['git', 'config', '--global', '--add', 'safe.directory',
-                    str(root / source['path'])], check=True)
-def git(path, *args):
-    return subprocess.check_output(['git', '-C', str(path), *args], text=True).strip()
-for source in manifest['sources']:
-    path = root / source['path']
-    actual = git(path, 'rev-parse', 'HEAD')
-    records = subprocess.check_output(['git', '-C', str(path), 'ls-files', '--stage', '-z'])
-    fingerprint = hashlib.sha256(b'\0'.join(
-        row for row in records.split(b'\0') if row and not row.startswith(b'160000 '))).hexdigest()
-    if fingerprint != source['content_sha256']:
-        raise SystemExit(f"{source['name']}: source content fingerprint mismatch: {fingerprint}")
-    if git(path, 'status', '--porcelain', '--untracked-files=no', '--ignore-submodules'):
-        raise SystemExit(f"{source['name']}: modified tracked sources")
-    print(f"BUILD_SOURCE {source['name']} {actual}")
-by_name = {source['name']: source for source in manifest['sources']}
-for name, revision in (('PS5_PayloadSDK', manifest['sdk_revision']),
-                       ('PS5_Mesa', os.environ['PS5_RADV_REVISION'])):
-    git(root / by_name[name]['path'], 'cat-file', '-e', revision + '^{commit}')
-lock = json.load(open(root / 'ps5-proton/ps5-wow/ps5/wine-ps5.lock'))
-if lock['commit'] != by_name['ps5-wine']['commit']:
-    raise SystemExit('Wine lock does not match deps.json')
-param = json.load(open(root / 'ps5-proton/ps5-wow/ps5/title/sce_sys/param.json'))
-if param['contentVersion'] != sys.argv[3]:
-    raise SystemExit('tag does not match source contentVersion')
-PY
+    pin validate-sources "$root" "$tag" "$PS5_RADV_REVISION"
     # Replaying explicit version provenance avoids dependence on unpublished
     # Git ancestry. Only these four upstream version-stamp commands change;
     # all Git source/export/validation operations use the real executable.
@@ -165,7 +134,7 @@ PY
 }
 build_sdk() {
     local revision tree=$root/.sdk-source
-    revision=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sdk_revision"])' "$here/deps.json")
+    revision=$(pin value sdk_revision)
     mkdir -p "$tree"
     git -C "$root/PS5_PayloadSDK" archive "$revision" | tar -x -C "$tree"
     bash "$tree/platform/tools/setup-sdk.sh" \
@@ -203,7 +172,7 @@ cache_key_common() {
 cache_key_radv() {
     cache_key_common radv \
         --source PS5_Mesa --source PS5_Vulkan --source PS5_PayloadSDK \
-        --download radv-zlib-1.3.1 --download radv-zlib-meson-patch \
+        --download "$(pin download radv-zlib name)" --download radv-zlib-meson-patch \
         --path "$wow/ps5/radv" \
         --value "PS5_RADV_REVISION=$PS5_RADV_REVISION" \
         --value "PS5_MESA_FORK=$PS5_MESA_FORK" \
@@ -215,7 +184,7 @@ cache_key_whisper() {
     cache_key_common whisper \
         --source PS5_PayloadSDK \
         --source vkd3d-proton/khronos/Vulkan-Headers \
-        --download whisper.cpp-1.9.5 --download ggml-0.26.0 \
+        --download "$(pin download whisper.cpp name)" --download "$(pin download ggml name)" \
         --path "$wow/ps5/build-whisper.sh" \
         --path "$wow/ps5/whisper" \
         --path "$wow/ps5/build-common.sh" \
@@ -223,7 +192,7 @@ cache_key_whisper() {
 }
 cache_key_freetype() {
     cache_key_common freetype \
-        --source PS5_PayloadSDK --download freetype-2.15.0 \
+        --source PS5_PayloadSDK --download "$(pin download freetype name)" \
         --path "$wow/ps5/build-freetype.sh" \
         --path "$wow/ps5/build-common.sh" \
         --path "$wow/ps5/paths.sh"
@@ -231,8 +200,8 @@ cache_key_freetype() {
 cache_key_gnutls() {
     cache_key_common gnutls \
         --source PS5_PayloadSDK --source pacbrew-repo \
-        --download nettle-3.10.2 --download libtasn1-4.21.0 \
-        --download gnutls-3.8.13 \
+        --download "$(pin download nettle name)" --download "$(pin download libtasn1 name)" \
+        --download "$(pin download gnutls name)" \
         --path "$wow/ps5/build-gnutls.sh" \
         --path "$wow/ps5/build-common.sh" \
         --path "$wow/ps5/paths.sh" \
@@ -256,14 +225,14 @@ cache_key_addonforge() {
         --source AddonForge \
         --path "$wow/ps5/addonforge" \
         --path "$wow/ps5/release/Dockerfile" \
-        --value "rust-toolchain=1.99.1" \
+        --value "rust-toolchain=$(pin value rust_toolchain)" \
         --value "rust-target=x86_64-pc-windows-gnullvm" \
         --value "github-catalogue-sha256=$(sha256sum "$logs/github-catalogue.csv" | cut -d' ' -f1)" \
         --value "rustflags=crt-static,debuginfo-0,no-insert-timestamp,remap-paths"
 }
 cache_key_wine() {
     local sdk_revision freetype_key gnutls_key vkd3d_key
-    sdk_revision=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["sdk_revision"])' "$here/deps.json")
+    sdk_revision=$(pin value sdk_revision)
     freetype_key=$(cache_key_freetype)
     gnutls_key=$(cache_key_gnutls)
     vkd3d_key=$(cache_key_vkd3d)

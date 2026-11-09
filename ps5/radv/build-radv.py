@@ -6,13 +6,18 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 
 HERE = Path(__file__).resolve().parent
 WOW = HERE.parents[1]
 VULKAN = WOW.parents[1] / 'PS5_Vulkan'
-DEFAULT_REVISION = '15a5e9933e14f6493a7853e8cf1df973dd093eeb'
+sys.path.append(str(WOW / 'ps5/release'))
+import pins  # noqa: E402  (ps5/release/pins.py: the deps.json reader)
+# deps.json's radv_revision, the PS5_Mesa commit fetch-sources.py checks out;
+# PS5_RADV_REVISION (build-linux.sh: PS5_MESA_REVISION) overrides it.
+DEFAULT_REVISION = pins.load()['radv_revision']
 DEFAULT_PATCHES = sorted((HERE / 'patches').glob('*.patch'))
 REVISION = os.environ.get('PS5_RADV_REVISION', DEFAULT_REVISION)
 # PS5_RADV_PATCH: one patch, or several separated by os.pathsep, instead of

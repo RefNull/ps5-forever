@@ -11,9 +11,10 @@ import shutil
 import subprocess
 import urllib.request
 
-TOOLCHAIN = '1.99.1'
+DEPS = json.loads((Path(__file__).resolve().parents[1] / 'release/deps.json').read_text())
+TOOLCHAIN = DEPS['rust_toolchain']
 TARGET = 'x86_64-pc-windows-gnullvm'
-UPSTREAM = '0dc9ab28f207f86e33770e359f2345043ef19585'
+UPSTREAM = next(source['commit'] for source in DEPS['sources'] if source['name'] == 'AddonForge')
 GITHUB_CATALOGUE_URL = (
     'https://raw.githubusercontent.com/bizkut/github-wow-addon-catalogue/main/addons.csv')
 

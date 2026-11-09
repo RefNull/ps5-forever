@@ -129,6 +129,11 @@ test-runtime-profile: test-runtime-profile.py runtime_profiles.py runtime_import
 test-build-speed: test-build-speed.py ../../configure-stamp.py ../../release/package.py
 	python3 test-build-speed.py
 
+# Every pin copy that cannot read ps5/release/deps.json must agree with it.
+.PHONY: test-pins
+test-pins:
+	python3 ../../release/pins.py check
+
 test-staged: runtime-qualification
 
 $(HOST_OUT)/test-staged-runtime: test-staged-runtime.c elf-runtime.c elf-runtime.h sha256.h
@@ -154,7 +159,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 		$(HOST_OUT)/test-title-icon $(HOST_OUT)/test-desktop-surface \
 		$(HOST_OUT)/test-cursor $(HOST_OUT)/test-cursor-hub \
 		$(HOST_OUT)/test-cursor-peer $(HOST_OUT)/test-file-security \
-		$(PE_OUT)/audio-tone.exe test-startup-routing test-runtime-profile test-build-speed \
+		$(PE_OUT)/audio-tone.exe test-startup-routing test-runtime-profile test-build-speed test-pins \
 		../../tools/test-ps5-capture.py
 	$(HOST_OUT)/test-protocol
 	$(HOST_OUT)/test-supervisor-admission

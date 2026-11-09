@@ -19,11 +19,11 @@ source "$here/build-common.sh"
 sdk=${PS5_PAYLOAD_SDK:-$HOME/ps5-payload-sdk-platform}/bin
 source "$here/paths.sh"
 
-version=2.15.0
-sha256=93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5
-url=https://download.savannah.gnu.org/releases/freetype/freetype-$version.tar.xz
-archive=$here/build/freetype-$version.tar.xz
-src=$here/build/freetype-$version
+# The release manifest is the only statement of the FreeType pin.
+pin=$(python3 "$here/release/pins.py" download freetype name version sha256 url)
+IFS=$'\t' read -r name version sha256 url <<< "$pin"
+archive=$here/build/${url##*/}
+src=$here/build/$name
 project=$here/build/freetype-ps5-cmake
 build=$here/build/freetype-ps5-build
 prefix=$here/build/freetype-ps5

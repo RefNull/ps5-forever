@@ -19,14 +19,11 @@ spirv_cmake=/usr/share/cmake/SPIRV-Headers
 jobs=${JOBS:-8}
 
 # The same release download manifest pins the archive bytes and upstream commits.
-pins=$(python3 - "$here/release/deps.json" <<'PY'
-import json, sys
-manifest = json.load(open(sys.argv[1]))
-for name in ('whisper.cpp-1.9.5', 'ggml-0.26.0'):
-    entry = next(item for item in manifest['downloads'] if item['name'] == name)
-    print('\t'.join(entry[key] for key in ('name', 'commit', 'sha256', 'url')))
-PY
-)
+whisper_pin=$(python3 "$here/release/pins.py" download whisper.cpp name commit sha256 url)
+ggml_pin=$(python3 "$here/release/pins.py" download ggml name commit sha256 url)
+pins=$whisper_pin$'\n'$ggml_pin
+whisper_src=$work/src/${whisper_pin%%$'\t'*}
+ggml_src=$work/src/${ggml_pin%%$'\t'*}
 for input in "$sdk/.ps5-sdk-revision" "$sdk/target/include/c++/v1/__config" \
     "$radv/lib/libvulkan_radeon.ps5.a" "$vulkan_headers/vulkan/vulkan.hpp" \
     "$vulkan_headers/vulkan/vulkan_core.h" "$spirv_headers/spirv.hpp11" \
@@ -78,14 +75,14 @@ while IFS=$'\t' read -r name commit sha url; do
     mkdir -p "$work/src/$name"
     tar -xf "$work/downloads/$name-$commit.tar.gz" --strip-components=1 -C "$work/src/$name"
 done <<< "$pins"
-patch --batch --fuzz=0 -p1 -d "$work/src/ggml-0.26.0" < "$here/whisper/ps5-buffer-limits.patch"
+patch --batch --fuzz=0 -p1 -d "$ggml_src" < "$here/whisper/ps5-buffer-limits.patch"
 ln -s "$spirv_headers" "$work/obj/include-shim/spirv/unified1"
 cmake -S "$here/whisper" -B "$work/obj" -G Ninja \
     -DCMAKE_TOOLCHAIN_FILE="$here/whisper/toolchain.cmake" \
     -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix" \
     -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_INSTALL_INCLUDEDIR=include \
-    -DWHISPER_SOURCE_DIR="$work/src/whisper.cpp-1.9.5" \
-    -DGGML_SOURCE_DIR="$work/src/ggml-0.26.0" \
+    -DWHISPER_SOURCE_DIR="$whisper_src" \
+    -DGGML_SOURCE_DIR="$ggml_src" \
     -DVulkan_INCLUDE_DIR="$vulkan_headers" \
     -DVulkan_LIBRARY="$radv/lib/libvulkan_radeon.ps5.a" \
     -DVulkan_GLSLC_EXECUTABLE="$glslc" \
