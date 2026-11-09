@@ -1,43 +1,28 @@
 # Forever Launcher (fork)
 
-Run **Battle.net** on a jailbroken **PlayStation 5**.
+Play **World of Warcraft** through **Battle.net** on a jailbroken **PS5**.
 
 > [!IMPORTANT]
 > **This is an unofficial fork** of [bizkut's Forever Launcher](https://github.com/bizkut/ps5-forever).
-> It tracks upstream and adds fixes and optimisations that are **work in progress
+> It tracks upstream and adds fixes: a safer write helper, current ZIP and font
+> parsers, a sturdier start-up and reproducible builds. It is **work in progress
 > and may be unstable**. For the stable release, use upstream.
 >
-> **Why this fork exists:** mainly to close security and reliability gaps in
-> upstream, such as a write-helper flaw that let a link under `/data/forever`
-> redirect writes elsewhere, outdated ZIP and font parsers, and a fragile helper
-> start-up. Along the way it removes dead code and makes builds reproducible.
-> Graphics performance is currently identical to upstream; the next focus is
-> improvements from a newer vkd3d-proton.
->
 > - Versions read `01.UUU.FFF`: based on upstream `01.000.UUU`, fork build `FFF`.
-> - It replaces an upstream install (same app ID, same `/data/forever`). To go
->   back to upstream, delete this app first; your data stays.
-
-Forever Launcher (`PPSA99030`) runs Battle.net and World of Warcraft through
-Wine, using DirectX 12 on the PS5's own GPU. Choose the WoW version you want in
-Battle.net: Retail, Classic, Classic Era, Anniversary, Forever, beta or PTR.
-The launcher detects channel folders rather than keeping a list of versions.
-The supplied settings use 4K output at 1080p render scale, HDR and a 60 fps cap;
-frame generation is off until you turn it on.
-
-Retail, Classic, Classic Era, Anniversary and the Forever beta start from
-Battle.net's **Play** button and were tested on a console. Other channels, such
-as PTR, are detected the same way but untested; detection does not guarantee
-that a game build renders or works online.
-
-> [!NOTE]
-> This launcher is for World of Warcraft. Other Battle.net games are not
-> supported. A USB keyboard and mouse work in Battle.net and WoW.
+> - It replaces an upstream install (same app ID `PPSA99030`, same
+>   `/data/forever`). To go back to upstream, delete this app first; your data
+>   stays.
 
 > [!WARNING]
 > **Alpha software.** Expect bugs. Forever Launcher is not made, approved or
 > supported by Blizzard Entertainment, Sony Interactive Entertainment or Valve.
 > Using unofficial software with an online game is at your own risk.
+
+Forever Launcher runs Battle.net and the Windows version of WoW through Wine,
+with DirectX 12 on the PS5's own GPU. Choose the WoW version in Battle.net.
+Retail, Classic, Classic Era, Anniversary and the Forever beta were tested on a
+console; PTR and other channels are detected the same way but untested. Other
+Battle.net games are not supported.
 
 ## What's new in 01.024.005
 
@@ -63,6 +48,7 @@ Tested on one console (firmware 13.40).
 - **Groundwork for other launchers:** very large memory reservations succeed,
   and the launcher and installer (including a verified zip) come from the
   build profile.
+- Install note for FTP copies to the internal drive (error `0x80aa001a`).
 
 Known issues:
 
@@ -73,193 +59,151 @@ Fork releases are on the [releases page](https://github.com/RefNull/ps5-forever/
 
 ## What you need
 
-- A **jailbroken PS5** that can run homebrew apps. Tested on firmware 5.50.
-- **[ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus)**, in a version that lets
-  apps use `/data`. It installs the app; your games and settings live in `/data`.
-- Enough **free space** on the console for the WoW versions you install: Classic
-  versions need about 50–55 GB; Retail is much larger.
-- A **Battle.net account** with access to the WoW version you want, with an
-  **authenticator** enabled (see [Signing in to Battle.net](#signing-in-to-battlenet)).
-- A **DualSense** controller. A USB keyboard also works.
-- An **FTP server** on the console, only to add your own `Lossless.dll` for
-  frame generation or change settings files by hand.
+- A **jailbroken PS5** that runs homebrew apps. Tested on firmware 5.50 and,
+  for this release, 13.40.
+- **[ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus)**, in a
+  version that lets apps use `/data`.
+- **Free space** for the WoW versions you install: Classic needs about
+  50–55 GB; Retail is much larger.
+- A **Battle.net account** with the WoW version you want and an
+  **authenticator** enabled.
+- A **DualSense**. A USB keyboard and mouse also work.
+- An **FTP server** on the console, to copy the app and, if you want them,
+  `Lossless.dll` or a WoW install from a PC.
 
 ## Install
 
 1. Download `PPSA99030.zip` from the [latest release](https://github.com/RefNull/ps5-forever/releases/latest).
-2. Unzip it. Copy the `PPSA99030` folder to a location ShadowMountPlus scans,
-   such as `/data/homebrew/PPSA99030`. The app folder can also be on an external drive;
-   games and settings remain in `/data/forever`.
-3. Let ShadowMountPlus register it, then start **Forever Launcher** from the home screen.
+2. Unzip it and copy the `PPSA99030` folder to a location ShadowMountPlus
+   scans, such as `/data/homebrew/PPSA99030`. An external drive works too; your
+   games and settings always live in `/data/forever`.
+3. **Copying to the internal drive by FTP:** the files must be executable. If
+   your FTP server creates them as `rw-rw-rw-`, the app fails to start with
+   error `0x80aa001a`. Set them to 755, for example with your FTP client's
+   chmod.
+4. Let ShadowMountPlus register the app, then start **Forever Launcher** from
+   the home screen.
+
+To update, close the app and replace only the `PPSA99030` folder. Do not delete
+`/data/forever`. The first start after an update checks the app's Windows files
+(about 15–20 seconds).
 
 ## First start
 
-1. The first start sets up the Windows files. This takes a few minutes. The app
-   restarts by itself when it is done.
-2. Forever Launcher downloads Blizzard's Battle.net installer and automatically
-   continues past its fixed install-location page. Wait while Battle.net installs.
-3. Sign in to Battle.net (see below).
-4. In Battle.net, choose the World of Warcraft version you want, press
-   **Install** and wait for the download, then press **Play**.
+1. The first start sets up the Windows files. This takes a few minutes; the
+   app restarts by itself when it is done.
+2. Forever Launcher downloads Blizzard's Battle.net installer and installs
+   Battle.net. Wait for it.
+3. Sign in to Battle.net with your **email address and password**, and choose a
+   **code by email** when asked to confirm. Your account needs an authenticator.
+   Google, Apple, Facebook, Xbox, PlayStation and other third-party sign-ins
+   are not supported.
+4. Choose your WoW version, press **Install**, wait for the download, then
+   press **Play**.
 
-### Faster: copy WoW from a PC
+Battle.net keeps its own sign-in token in your data folder, so you stay signed
+in. Forever Launcher does not capture credentials.
 
-If WoW is already installed on a PC, you can copy it to the console over your
-home network instead of downloading it again. Battle.net then only checks the
-files and downloads what is missing.
+### Copy WoW from a PC instead
 
-1. Start Forever Launcher once and install Battle.net (steps 1–3 above), then
-   close the app.
-2. On the PC, find your `World of Warcraft` folder. On Windows it is usually
-   `C:\Program Files (x86)\World of Warcraft`. A Mac install
-   (`/Applications/World of Warcraft`) works too; Battle.net replaces the Mac
-   game files with the Windows ones.
-3. With an FTP program, copy the whole folder, including the hidden files
-   `.build.info` and `.product.db`, to the console as:
+1. Start Forever Launcher once, install Battle.net, then close the app.
+2. With an FTP program, copy your PC's whole `World of Warcraft` folder
+   (usually `C:\Program Files (x86)\World of Warcraft`; a Mac install works
+   too), including the hidden `.build.info` and `.product.db`, to:
 
    ```text
    /data/forever/prefix/drive_c/Program Files (x86)/World of Warcraft
    ```
 
-   Use a wired network if you can. Classic is about 50 GB; Retail is much larger.
-4. Start Forever Launcher. In Battle.net, select the game. If it shows
-   **Install**, use **Locate the game** below the button and choose
-   `C:\Program Files (x86)\World of Warcraft`.
-5. Battle.net checks the files and downloads only what is missing or newer.
-   For a full check, use the gear next to **Play** → **Scan and Repair**.
+3. Start Forever Launcher and select the game. If Battle.net shows
+   **Install**, use **Locate the game** and choose
+   `C:\Program Files (x86)\World of Warcraft`. Battle.net then downloads only
+   what is missing or newer.
 
-Forever Launcher fixes the file permissions of copied folders at startup, so
-you normally don't need to change them by hand. If it still says it can't
-write to `/data/forever/prefix`, see [Troubleshooting](#troubleshooting).
-
-## Signing in to Battle.net
-
-- Sign in with your **email address and password**, and choose to get a **code by email**
-  when Battle.net asks to confirm the sign-in.
-- Your account needs an **authenticator** enabled.
-- Signing in with **Google, Apple, Facebook, Xbox, PlayStation or any other
-  third-party account is not supported.**
-- Forever Launcher does not implement credential capture. Battle.net keeps its
-  own sign-in token in your user data folder so you stay signed in.
+The app fixes the permissions of copied folders at start-up.
 
 ## Controls
 
 | Press | Does |
 | --- | --- |
-| **Options** | Opens or closes the Forever menu while Battle.net is open |
-| **F12** on a USB keyboard | Opens or closes the Forever menu while Battle.net is open |
-| **L2** | Escape in Battle.net (closes an open Battle.net dialog or dropdown) |
-| **L3 + R3** (press both sticks briefly) | Opens the on-screen keyboard |
-| Hold the touchpad (still, about 0.4 s) | Voice-to-Text: speech is typed into WoW chat |
+| **Options**, or **F12** on a USB keyboard | Opens or closes the Forever menu over Battle.net |
+| **L2** | Escape in Battle.net (closes a dialog or dropdown) |
+| **L3 + R3** | Opens the on-screen keyboard |
+| Hold the touchpad still (about 0.4 s) | Voice-to-Text into WoW chat |
 
-The controller is turned on in WoW by default (WoW's own gamepad mode).
+WoW starts with its own gamepad mode on. In Battle.net, the mouse cursor hides
+after three seconds without movement.
 
-With Voice-to-Text enabled, hold the touchpad still and speak into the DualSense
-microphone. A red-dot **Listening** panel appears in the middle of the screen
-while recording and disappears on release. While the text is in the chat box,
-**Cross** sends it, **Circle**
-cancels, and **Square** opens the on-screen keyboard to edit. **L1/R1** cycle
-the chat channel through **/s /p /i /g /raid /r**. The DualSense **Mute** button
-mutes the microphone: a muted mic types nothing.
-
-In Battle.net, the mouse cursor hides after three seconds without pointer
-movement. Move the pointer or click to show it again. A new visible cursor
-shape also restarts the timer; the game's or app's own hidden cursor stays hidden.
+**Voice-to-Text** (turn it on in the Forever menu): hold the touchpad and speak
+into the DualSense microphone; a **Listening** panel shows while it records.
+With the text in the chat box, **Cross** sends, **Circle** cancels, **Square**
+opens the on-screen keyboard to edit, and **L1/R1** cycle the channel through
+**/s /p /i /g /raid /r**. A muted microphone types nothing.
 
 ## Forever menu
 
-Open the menu over Battle.net with **Options**, or press **F12** on a USB
-keyboard. Use the D-pad and Cross; press Circle or Options at the top level to
-close, or click with a mouse. The menu can:
+Open it over Battle.net with **Options** or **F12**; each start shows a
+ten-second hint. Use the D-pad and Cross, or a mouse. Circle or Options at the
+top level closes it.
 
-- turn frame generation, HDR and the performance overlay on or off;
-- set a **Frame rate cap** for games: Off (the game decides), 30, 60 or 120 fps
-  (120 needs a 120 Hz TV); a game's own lower cap still applies;
-- set the **Output resolution** games see: Auto (3840x2160), 1440p, 1080p, or
-  16:10 1600p (2560x1600), 1200p (1920x1200) and 800p (1280x800, the Steam
-  Deck's size). A 16:10 image keeps its shape, with black bars at the sides;
-  the Battle.net desktop stays 1920x1080;
-- turn **Invert mouse scroll** on or off (USB mouse wheel only; on by default);
-- turn **Voice-to-Text** On/Off (first use downloads a **190 MB speech model**);
-- browse, install, update and remove add-ons for the selected WoW version;
-- install a curated starter pack;
-- remove Battle.net while keeping installed games and their settings;
-- remove and reinstall Battle.net from a fresh installer download;
-- close Battle.net and the app (**Exit Battle.net**).
+| Row | Does |
+| --- | --- |
+| **Frame generation** | Off or On (2x), with your own `Lossless.dll`; otherwise it shows **Needs Lossless Scaling**. See [Frame generation](#frame-generation). |
+| **HDR** | On or Off. On by default; see the known issue above. |
+| **Frame rate cap** | Off (the game decides), 30, 60 or 120 fps (needs a 120 Hz TV). A game's own lower cap still applies. |
+| **Output resolution** | Auto (3840x2160), 1440p, 1080p, or 16:10 at 1600p (2560x1600), 1200p (1920x1200) or 800p (1280x800), centred with black side bars. The Battle.net desktop stays 1920x1080. |
+| **Performance overlay** | On or Off. |
+| **Invert mouse scroll** | USB mouse wheel only; on by default. |
+| **Voice-to-Text** | On or Off. First use downloads a 190 MB speech model. |
+| **Add-ons...** | See [Add-ons](#add-ons). |
+| **Reinstall Battle.net...** | Removes Battle.net and installs it again from a fresh installer download. |
+| **Uninstall Battle.net...** | Removes Battle.net, keeping installed games and their settings. Start the app again to reinstall it. |
+| **Close** / **Exit Battle.net** | Closes the menu / closes Battle.net and the app. |
 
-Each app start shows a ten-second hint for **Options** over Battle.net.
+Frame generation and the overlay change while the game runs. HDR, the cap and
+the resolution apply the next time a game starts. The cap and the resolution
+are `fps=` and `res=` in `C:\wineps5-display.txt`.
 
-Open **Add-ons** before pressing Play. L1/R1 cycles through detected installed
-WoW channels; Left/Right switches Installed, Updates, Find and Starter packs.
-Cross opens or installs, Square updates the
-selected add-on, Triangle updates all, and R3 removes after a confirmation whose
-default is Cancel. In Find, type on a USB keyboard or choose **Search…** for the
-on-screen keyboard (results filter as you type); **Add from GitHub link…** accepts `owner/repo` or its GitHub
-URL. CurseForge-only rows say so and cannot be installed. GitHub, WoWInterface
-and TukUI entries work without a key. Changes load the next time WoW starts, or
-after typing `/reload` in WoW.
+### Add-ons
 
-If Battle.net needs another web renderer process, Add-ons pauses instead of
-blocking Battle.net. Close and reopen **Add-ons** to resume.
+Open **Add-ons** before pressing Play. L1/R1 switch between your installed WoW
+versions; Left/Right switch Installed, Updates, Find and Starter packs. Cross
+opens or installs, Square updates the selected add-on, Triangle updates all,
+and R3 removes it after a confirmation. Changes load the next time WoW starts,
+or after `/reload`.
 
-Add-ons are checked against the selected channel's product and client version,
-and go into that channel's own `Interface/AddOns` folder. Find and Starter packs
-cover Retail (including PTR/beta), Classic MoP, Anniversary, Classic Era and
-Forever. Find uses [Forever's own GitHub add-on catalogue](https://github.com/bizkut/github-wow-addon-catalogue),
-derived from [layday's GPL-3.0 catalogue](https://github.com/layday/github-wow-addon-catalogue),
-and compatible WoWInterface/Tukui entries. Our list refreshes daily and the
-launcher checks it at most once every 24 hours; offline use keeps the last good
-cache or the build's bundled snapshot.
-**Add from GitHub link…** remains available. Unknown products say “Add-ons aren't
-supported for this WoW version yet”; they never receive another flavour's files.
+- **Find** searches [Forever's add-on catalogue](https://github.com/bizkut/github-wow-addon-catalogue)
+  (refreshed daily, checked at most once a day; offline, the last copy or the
+  bundled one is used) plus compatible WoWInterface and Tukui entries. Type on
+  a USB keyboard or choose **Search…**. **Add from GitHub link…** takes
+  `owner/repo` or a GitHub URL. CurseForge-only add-ons cannot be installed.
+- Add-ons are matched to each WoW version and go into its own
+  `Interface/AddOns` folder. Retail (with PTR and beta), Classic MoP,
+  Anniversary, Classic Era and Forever are covered.
+- **Wago** add-ons need a key that Wago gives its
+  [Patreon supporters](https://addons.wago.io/patreon) (not the API key on
+  Wago's account page). Choose **Wago key** on the Add-ons page and type it,
+  or save it as the first line of `C:\Forever\Addons\wago-key.txt` and choose
+  **Read from file** (the file is deleted after import). **Remove key** clears
+  it.
 
-For Wago add-ons, choose **Wago key** on the Add-ons page. Wago gives the key
-for add-on managers to its Patreon supporters: subscribe at
-[addons.wago.io/patreon](https://addons.wago.io/patreon), then copy the key it
-gives you. The API key on Wago's account page is for publishing add-ons and
-does not work here. Type the key, or choose **Read from file** after saving it
-as the first line of `C:\Forever\Addons\wago-key.txt` (up to 256 characters).
-A successful import deletes the file. The key is saved locally by AddonForge;
-**Remove key** clears it. If Wago cannot be reached, it is saved as **set (not
-checked)**. Without a key, Wago-only add-ons show **Wago key required**; all
-other sources work without one.
-
-If frame generation currently uses `fg=auto`, selecting it turns it off;
-selecting it again turns it on. Frame generation and the performance overlay
-use their live settings files; HDR, the frame rate cap and the output
-resolution apply the next time a game starts. The cap and the resolution are
-`fps=` and `res=` in `C:\wineps5-display.txt`; the cap reaches Direct3D 12
-games through vkd3d-proton and Direct3D 9 to 11 games through DXVK. After removing Battle.net, close and start Forever Launcher to install it
-again.
+If Battle.net needs another web renderer process, Add-ons pauses; close and
+reopen it to resume.
 
 ## Frame generation
 
-Frame generation shows extra, generated frames between the frames WoW draws,
-so motion looks smoother at up to 120 Hz. It is **off by default**; turn it on
-in the Forever menu (2x). It needs **your own copy of `Lossless.dll`** from
+Frame generation draws extra frames between WoW's, for smoother motion at up to
+120 Hz. It is **off by default** and needs **your own `Lossless.dll`** from
 [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/)
-(version 3.2.2.0, or a build with the same shaders); the file is not included
-and never downloaded. Without it, the menu shows **Needs Lossless Scaling**.
+(version 3.2.2.0, or a build with the same shaders). The file is never
+included or downloaded.
 
-**VRR**: with VRR set to **Automatic** in the PS5's Screen and Video settings
-and an HDMI 2.1 VRR display, refresh varies while WoW runs. WoW asks for
-120 Hz (119.88 Hz) and falls back to 59.94 Hz if the display refuses. There is
-no menu switch; the console and display settings decide.
+1. Find `Lossless.dll` in your Lossless Scaling install folder on your PC.
+2. Copy it by FTP to `/data/forever/prefix/drive_c/Lossless.dll`.
+3. Turn **Frame generation** on in the Forever menu and restart WoW.
 
-To use Lossless Scaling:
-
-1. On your PC, find `Lossless.dll` in your Lossless Scaling folder
-   (Steam: `steamapps/common/Lossless Scaling/`).
-2. Copy it by FTP to the console as:
-
-   ```text
-   /data/forever/prefix/drive_c/Lossless.dll
-   ```
-
-3. Restart WoW.
-
-Settings live in `/data/forever/prefix/drive_c/wineps5-fg.txt`. Changes apply
-while the game runs, within a second.
+Settings are in `/data/forever/prefix/drive_c/wineps5-fg.txt` and apply within
+a second:
 
 ```text
 fg=off mult=2 flow=1.0 method=lossless
@@ -267,134 +211,107 @@ fg=off mult=2 flow=1.0 method=lossless
 
 | Option | Values |
 | --- | --- |
-| `fg` | `on`, `off`, or `auto` (on only while WoW renders below 70 fps) |
+| `fg` | `on`, `off`, or `auto` (on only while WoW renders below 70 fps); the menu switches `auto` to off |
 | `mult` | `2`, `3` or `4` frames shown for every frame WoW draws |
 | `flow` | `0.25` to `1.0`: lower is cheaper, `1.0` looks best |
 | `method` | `lossless`; the launcher sets it at every start |
 
-The on-screen display settings are in `/data/forever/prefix/drive_c/wineps5-hud.txt`
-(`hud=on` or `hud=off`, `pos=tl`, `scale=2`); the Forever menu changes `hud`
-without replacing the other options.
+The overlay's settings are in `/data/forever/prefix/drive_c/wineps5-hud.txt`
+(`hud=on` or `off`, `pos=tl`, `scale=2`).
+
+**VRR:** set VRR to **Automatic** in the PS5's screen settings and use an
+HDMI 2.1 VRR display. WoW asks for 120 Hz and falls back to 59.94 Hz.
 
 ## WoW settings
 
-WoW starts with settings tuned for the PS5: 4K output at half render scale
-(1080p), a 60 fps cap, HDR on, and the controller enabled. Each detected installed channel gets the
-preset only when its own `WTF/Config.wtf` is missing. Existing settings are not
-overwritten. The Forever menu changes only `HDROutput` for every detected
-channel, leaving other settings, including `HDRFactor`, alone. The output
-resolution sets `RenderScale` so WoW draws its 3D at about 1080 lines: 0.5 at
-Auto, 0.75 at 1440p, 1.0 at 1080p, 0.675 at 1600p, 0.9 at 1200p and 1.0 at
-800p. A preset gets the value when it is installed; an existing file changes
-only while its `RenderScale` is still the value for the previous resolution.
+Each installed WoW version without a `WTF/Config.wtf` gets a preset: 4K output
+at 1080p render scale, a 60 fps cap, HDR on and the controller enabled.
+Existing settings are not overwritten. The HDR row changes only `HDROutput`.
+The output resolution keeps 3D at about 1080 lines through `RenderScale`
+(0.5 at Auto, 0.75 at 1440p, 1.0 at 1080p, 0.675 at 1600p, 0.9 at 1200p, 1.0
+at 800p), but only while it still holds the previous resolution's value.
 
-Automatic discovery currently scans
-`C:\Program Files (x86)\World of Warcraft`. Custom C: or W: installations can
-launch from Battle.net Play, but are not yet included in automatic settings,
-Add-ons discovery or direct start.
+Automatic detection covers `C:\Program Files (x86)\World of Warcraft`. Other
+C: or W: installs start from Battle.net's Play, without the preset, add-ons or
+direct start.
 
-### Start one channel directly
+**Start one version directly:** put its folder name (for example
+`_classic_era_` or `_retail_`) in `/data/homebrew/PPSA99030/wine/direct-game`
+and start the app. The file is used once. If that version is missing, the log
+says why and Battle.net opens. An empty file prefers Classic beta, then
+Forever, then another complete install.
 
-Create `/data/homebrew/PPSA99030/wine/direct-game` with just the channel folder
-name, for example `_classic_era_` or `_retail_`, then start Forever Launcher.
-The file is consumed once. If that channel is missing or incomplete, the log
-explains why and Battle.net opens; another channel is never chosen instead.
-An empty file prefers Classic beta, then Forever, then another complete
-installed channel.
+## Your data
 
-## Where your data is
+Everything that is yours is in **`/data/forever`**: Battle.net, WoW, settings,
+`Lossless.dll` and the shader cache. The app folder holds only the app. To
+uninstall, delete the app, then `/data/forever`.
 
-Everything that is yours is in **`/data/forever`**: Battle.net, WoW, your
-settings, `Lossless.dll` and the shader cache. The app folder
-(`/data/homebrew/PPSA99030`) holds only the app.
-
-Updating the app replaces only the app folder. Your games and settings stay.
-
-## Updating
-
-Close the app and replace only its `PPSA99030` app folder with the folder from
-the new zip. Do not delete `/data/forever`.
-
-Every start checks the app's Windows files in `/data/forever` and repairs any
-that differ from the app's copies. The first start after an update checks every
-file (about 15–20 seconds); later starts take under a second.
-
-## Uninstalling
-
-Delete the app from the home screen (or delete `/data/homebrew/PPSA99030`), then
-delete `/data/forever` to remove Battle.net, WoW and your settings.
-
-## Privacy and support data
-
-- Release logs retain aggregate input-health counters, not raw keyboard records,
-  key usages or modifiers.
-- Treat `/data/forever` as sensitive shared Wine-prefix storage. Never include
-  registry hives, browser profiles, session/account files or saved credentials in
-  support bundles, and review Wine/application logs and screenshots before sharing.
+Treat `/data/forever` as sensitive. Do not share registry files, browser
+profiles, account files or saved credentials, and check logs and screenshots
+before sharing them. Release logs keep only input-health counts, never what you
+type.
 
 ## Troubleshooting
 
-- **"Forever Launcher can't write to ..." (permission denied)**: the app
-  restarts its file helper once to repair folder permissions under
-  `/data/forever`, then tries again. If the message remains, close the app and,
-  on a PC, use FTP to set `/data/forever` and everything in it to permission
-  `777`; then start Forever Launcher again.
-- **Drives:** only `C:` and `W:` work inside Wine; `Z:` and network shares are
-  not supported.
-- **"Forever Launcher cannot use /data" (error 2 or 30)**: `/data` is missing
-  or read-only. Update ShadowMountPlus to a version that lets apps use `/data`.
-- **Battle.net sign-in fails**: use the email code and make sure an authenticator is
-  enabled on your account. Third-party sign-in is not supported.
-- **Battle.net reports only about 17 GB free**: the write helper is not answering
-  or is from an older app version, so a fixed 16 GiB answer is used. Restart the
-  app. The kernel log shows
-  `wine: title disk space source=broker` (real) or `source=synthetic` (fallback).
-- **Frame generation does nothing**: check that `wineps5-fg.txt` says `fg=on`.
-  Open the Forever menu from Battle.net to turn the performance overlay on; it
-  shows `FG LOSSLESS`. The file must be exactly
-  `/data/forever/prefix/drive_c/Lossless.dll`.
-- **Logs**: the console's kernel log (port 3232) shows what the app is doing.
-  Lines starting with `forever:` describe setup.
+- **"Forever Launcher can't write to ..."**: the app repairs folder
+  permissions under `/data/forever` and retries once. If the message stays,
+  close the app and set `/data/forever` and everything in it to `777` by FTP.
+- **"Forever Launcher cannot use /data" (error 2 or 30)**: update
+  ShadowMountPlus to a version that lets apps use `/data`.
+- **Sign-in fails**: use the email code and enable an authenticator.
+- **Battle.net sees only about 17 GB free**: the write helper is not
+  answering; restart the app. The kernel log shows `source=broker` (real) or
+  `source=synthetic` (fallback).
+- **Frame generation does nothing**: check that `wineps5-fg.txt` says `fg=on`
+  and that the file is exactly `/data/forever/prefix/drive_c/Lossless.dll`. The
+  performance overlay shows `FG LOSSLESS` when it works.
+- **Drives**: only `C:` and `W:` work inside Wine.
+- **Logs**: the console's kernel log (port 3232). Lines starting with
+  `forever:` describe setup.
 
-## Building from source
+## Building
 
 Releases are built by [`ps5/release/build-linux.sh`](ps5/release/build-linux.sh)
-from the public sources pinned in [`ps5/release/deps.json`](ps5/release/deps.json).
+from the sources pinned in [`ps5/release/deps.json`](ps5/release/deps.json).
 See [BUILDING.md](BUILDING.md).
 
 ## Credits
 
-Forever Launcher is built on the work of many projects. Thank you to all of them.
-Licences and details are in [NOTICE.md](NOTICE.md).
+Thank you to everyone whose work this builds on. Licences and details are in
+[NOTICE.md](NOTICE.md).
 
-- [Forever Launcher](https://github.com/bizkut/ps5-forever) by bizkut: the upstream this fork
-  tracks, including its Wine, vkd3d-proton, DXVK and Mesa forks.
-- [Proton](https://github.com/ValveSoftware/Proton) by Valve: the base this project starts from.
-- [Wine](https://www.winehq.org/): runs Windows programs (LGPL-2.1-or-later).
-- [vkd3d-proton](https://github.com/HansKristian-Work/vkd3d-proton) by Hans-Kristian Arntzen
-  and contributors: DirectX 12 on Vulkan (upstream LGPL-2.1-or-later;
-  this frame-generation build GPL-3.0-or-later).
-- [DXVK](https://github.com/doitsujin/dxvk) by Philip Rebohle and contributors: DXGI (zlib).
-- [Mesa](https://mesa3d.org/) and its RADV Vulkan driver (MIT).
-- [PS5_Mesa](https://github.com/mihawk-99/PS5_Mesa), [PS5_Vulkan](https://github.com/mihawk-99/PS5_Vulkan)
-  and [PS5_PayloadSDK](https://github.com/mihawk-99/PS5_PayloadSDK) by mihawk-99: RADV, Vulkan
-  and the SDK on PS5.
+- [Forever Launcher](https://github.com/bizkut/ps5-forever) by bizkut: the
+  upstream, and its forks of Wine, Mesa, vkd3d-proton, DXVK, PS5_Vulkan, the
+  payload SDK and the pacbrew recipes.
+- Mihawk ([mihawk-99](https://github.com/mihawk-99)): [PS5_Mesa](https://github.com/mihawk-99/PS5_Mesa),
+  whose RADV patches this fork carries, [PS5_Vulkan](https://github.com/mihawk-99/PS5_Vulkan),
+  [PS5_PayloadSDK](https://github.com/mihawk-99/PS5_PayloadSDK), and the earlier
+  ps5-forever code behind the title font, artwork and icon.
+- WoWPS5 by BeLikeBrett and the WoWPS5 contributors: the native audio port and
+  VideoOut MAILBOX code, and the input handling this launcher follows.
 - [ps5-payload-sdk](https://github.com/ps5-payload-dev/sdk) by John Törnblom.
-- [Eden](https://eden-emu.dev/) emulator: the frame-generation port this project adapts (GPL-3.0-or-later).
-- [ProsperoEden](https://github.com/blackbearreloaded/ProsperoEden): frame generation on PS5.
-- [ps5-framegen](https://github.com/swordpdf/ps5-framegen) by swordpdf: FSR 3 frame generation host
-  (GPL-3.0-or-later), with AMD [FidelityFX](https://gpuopen.com/fidelityfx-super-resolution-3/) shaders (MIT).
-- [lsfg-vk](https://github.com/PancakeTAS/lsfg-vk) by PancakeTAS: the Vulkan Lossless Scaling frame-generation
-  code that Eden's port builds on (GPL-3.0-or-later).
-- [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/) by THS: frame-generation shaders,
-  used only from your own copy.
-- [FreeType](https://freetype.org/), [GnuTLS](https://www.gnutls.org/),
-  [Nettle](https://www.lysator.liu.se/~nisse/nettle/), [libtasn1](https://www.gnu.org/software/libtasn1/)
-  and the [pacbrew](https://github.com/OpenAGC/pacbrew-repo) recipes that build them.
-- [ShadowMountPlus](https://github.com/drakmor/ShadowMountPlus) by drakmor.
-- Noto and Droid fonts (OFL / Apache-2.0) and Mozilla's root certificates (MPL-2.0).
-- Mihawk's earlier Forever Launcher: generated placeholder artwork and runtime icon extraction (MIT).
-- [stb_image](https://github.com/nothings/stb) by Sean Barrett and contributors: PNG decoding (MIT or public domain).
+- [Wine](https://www.winehq.org/) and [Proton](https://github.com/ValveSoftware/Proton) (Valve).
+- [vkd3d-proton](https://github.com/HansKristian-Work/vkd3d-proton) by Hans-Kristian Arntzen and contributors.
+- [DXVK](https://github.com/doitsujin/dxvk) by Philip Rebohle and contributors.
+- [Mesa](https://mesa3d.org/) and its RADV Vulkan driver.
+- [Eden](https://eden-emu.dev/), [ProsperoEden](https://github.com/blackbearreloaded/ProsperoEden)
+  and [lsfg-vk](https://github.com/PancakeTAS/lsfg-vk) by PancakeTAS: the
+  Lossless Scaling frame-generation port.
+- [ps5-framegen](https://github.com/swordpdf/ps5-framegen) by swordpdf and AMD
+  [FidelityFX](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK):
+  FSR 3 frame generation, still built into vkd3d-proton.
+- [AddonForge](https://github.com/Topher121/AddonForge) by Topher121.
+- [github-wow-addon-catalogue](https://github.com/layday/github-wow-addon-catalogue)
+  by layday, the base of Forever's add-on catalogue.
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) and
+  [ggml](https://github.com/ggml-org/ggml), with OpenAI's
+  [Whisper](https://github.com/openai/whisper) model.
+- [miniz](https://github.com/richgel999/miniz), [FreeType](https://freetype.org/),
+  [GnuTLS](https://www.gnutls.org/) with [Nettle](https://www.lysator.liu.se/~nisse/nettle/)
+  and [libtasn1](https://www.gnu.org/software/libtasn1/), and
+  [stb_image](https://github.com/nothings/stb).
+- Noto and Droid fonts, and Mozilla's root certificates.
 
 ## Licence
 

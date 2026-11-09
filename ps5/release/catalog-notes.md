@@ -29,5 +29,6 @@ Work in progress; tested on one console (firmware 13.40).
 - **Groundwork for other launchers:** very large memory reservations succeed,
   and the launcher and installer (including a verified zip) come from the
   build profile.
+- Install note for FTP copies to the internal drive (error `0x80aa001a`).
 - **Known issue:** HDR is work in progress; with it on, WoW's colours are
   wrong, so turn it off in the Forever menu.
