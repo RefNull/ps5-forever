@@ -1,5 +1,6 @@
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "forever-menu.h"
 
@@ -128,25 +129,45 @@ static int ascii_contains(const char *text, const char *query)
     return 0;
 }
 
+/* qsort has no context argument; sorting only runs on the frame thread. */
+static const struct forever_addon_row *sort_base;
+static int sort_downloads;
+
+static int compare_rows(const void *left, const void *right)
+{
+    unsigned short a = *(const unsigned short *)left, b = *(const unsigned short *)right;
+    const struct forever_addon_row *x = &sort_base[a], *y = &sort_base[b];
+    int order;
+    if (sort_downloads && x->downloads != y->downloads)
+        return x->downloads > y->downloads ? -1 : 1;
+    order = strcmp(x->name, y->name);
+    return order ? order : (a > b) - (a < b);  /* ties keep their input order */
+}
+
+/* Sort indices, then permute rows in place: each row is copied once, not
+ * once per position it moves as an insertion sort of ~1 KiB rows would. */
 static void sort_rows(struct forever_addon_row *rows, size_t count, int downloads)
 {
-    for (size_t i = 1; i < count; i++)
+    static unsigned short order[FOREVER_ADDON_ROWS];
+    struct forever_addon_row row;
+    if (count < 2) return;
+    for (size_t i = 0; i < count; i++) order[i] = (unsigned short)i;
+    sort_base = rows;
+    sort_downloads = downloads;
+    qsort(order, count, sizeof(order[0]), compare_rows);
+    for (size_t i = 0; i < count; i++)
     {
-        struct forever_addon_row row = rows[i];
-        size_t position = i;
-        while (position)
+        size_t at = i;
+        if (order[i] == i) continue;
+        row = rows[i];
+        for (;;)
         {
-            const struct forever_addon_row *previous = &rows[position - 1];
-            int before = downloads ?
-                (row.downloads > previous->downloads ||
-                 (row.downloads == previous->downloads &&
-                  strcmp(row.name, previous->name) < 0)) :
-                strcmp(row.name, previous->name) < 0;
-            if (!before) break;
-            rows[position] = *previous;
-            position--;
+            size_t next = order[at];
+            order[at] = (unsigned short)at;
+            if (next == i) { rows[at] = row; break; }
+            rows[at] = rows[next];
+            at = next;
         }
-        rows[position] = row;
     }
 }
 
