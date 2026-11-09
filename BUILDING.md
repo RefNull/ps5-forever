@@ -40,7 +40,7 @@ are refused, and the Wine lock must agree with its manifest commit.
 From `ps5-wow`:
 
 ```sh
-JOBS=8 bash ps5/release/build-linux.sh /absolute/SOURCE_ROOT 01.024.001
+JOBS=8 bash ps5/release/build-linux.sh /absolute/SOURCE_ROOT 01.024.005
 ```
 
 The tag must equal the source `sce_sys/param.json` content version. Source
@@ -83,13 +83,13 @@ The install is `ps5/build/whisper/{include,lib}` and contains `libwhisper.a`,
 After the SDK and RADV outputs exist, rerun just the speech stage:
 
 ```sh
-JOBS=8 bash ps5/release/build-linux.sh /absolute/SOURCE_ROOT 01.024.001 --whisper-only
+JOBS=8 bash ps5/release/build-linux.sh /absolute/SOURCE_ROOT 01.024.005 --whisper-only
 ```
 
 This uses the same `build_whisper_cached` function and cache as a full release,
 without host tests, prerequisites, or Wine/title outputs. It is not runtime
 qualification. Inside the release container, the equivalent entry is
-`bash ps5/release/build-linux.sh --container 01.024.001 --whisper-only`. Both use
+`bash ps5/release/build-linux.sh --container 01.024.005 --whisper-only`. Both use
 `PS5_PAYLOAD_SDK=/sources/PS5_Vulkan/.deps/native/ps5-payload-sdk`.
 `ps5/build-whisper.sh` can also run directly: `PS5_WHISPER_BUILD` and
 `PS5_WHISPER_INSTALL` select empty work/install directories for a cold build
