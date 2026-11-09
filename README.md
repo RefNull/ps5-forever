@@ -22,7 +22,8 @@ Forever Launcher (`PPSA99030`) runs Battle.net and World of Warcraft through
 Wine, using DirectX 12 on the PS5's own GPU. Choose the WoW version you want in
 Battle.net: Retail, Classic, Classic Era, Anniversary, Forever, beta or PTR.
 The launcher detects channel folders rather than keeping a list of versions.
-The supplied settings use 4K output with HDR and frame generation.
+The supplied settings use 4K output at 1080p render scale, HDR and a 60 fps cap;
+frame generation is off until you turn it on.
 
 Retail, Classic, Classic Era, Anniversary and the Forever beta start from
 Battle.net's **Play** button and were tested on a console. Other channels, such
@@ -210,8 +211,8 @@ removing Battle.net, close and start Forever Launcher to install it again.
 ## Frame generation
 
 Frame generation shows extra, generated frames between the frames WoW draws,
-so motion looks smoother at up to 120 Hz. It is **on by default** (2x) and picks
-its method by itself:
+so motion looks smoother at up to 120 Hz. It is **off by default**; turn it on
+in the Forever menu (2x). It picks its method by itself:
 
 - With **your own copy of `Lossless.dll`** from
   [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/)
@@ -240,7 +241,7 @@ Settings live in `/data/forever/prefix/drive_c/wineps5-fg.txt`. Changes apply
 while the game runs, within a second.
 
 ```text
-fg=on method=auto mult=2 flow=1.0
+fg=off method=auto mult=2 flow=1.0
 ```
 
 | Option | Values |
@@ -256,8 +257,8 @@ without replacing the other options.
 
 ## WoW settings
 
-WoW starts with settings tuned for the PS5: 4K output at half render scale,
-HDR on, and the controller enabled. Each detected installed channel gets the
+WoW starts with settings tuned for the PS5: 4K output at half render scale
+(1080p), a 60 fps cap, HDR on, and the controller enabled. Each detected installed channel gets the
 preset only when its own `WTF/Config.wtf` is missing. Existing settings are not
 overwritten. The Forever menu changes only `HDROutput` for every detected
 channel, leaving other settings, including `HDRFactor`, alone.

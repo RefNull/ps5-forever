@@ -767,7 +767,7 @@ static void test_key_rewrite(void)
     put("switches/drive_c/independent-voice.txt", "voice=on device=default\n");
     assert(forever_menu_read_settings(fg, hdr, hud, mouse, voice,
         &fg_mode, &hdr_enabled, &hud_enabled, &invert_scroll, &voice_enabled) == -EINVAL);
-    assert(fg_mode == FOREVER_FG_ON);
+    assert(fg_mode == FOREVER_FG_OFF); /* vkd3d-proton runs no FG for an invalid file */
     assert(!hdr_enabled && hud_enabled); /* one bad setting cannot hide the other two */
     assert(voice_enabled); /* bad FG must not hide the independent voice setting */
     assert(invert_scroll); /* bad FG must not hide the independent mouse setting */

@@ -102,13 +102,13 @@ static inline int forever_menu_read_settings(
     int *hdr_value, int *hud_value, int *invert_scroll_value, int *voice_value)
 {
     int first = 0, error;
-    *frame_generation_value = FOREVER_FG_ON;
+    *frame_generation_value = FOREVER_FG_OFF;
     *hdr_value = 1;
     *hud_value = 0;
     *invert_scroll_value = 1;
     *voice_value = 0;
     error = forever_menu_read_frame_generation(
-        frame_generation, FOREVER_FG_ON, frame_generation_value);
+        frame_generation, FOREVER_FG_OFF, frame_generation_value);
     if (error && !first) first = error;
     error = forever_menu_read_switch(hdr, "hdr", 1, hdr_value);
     if (error && !first) first = error;
