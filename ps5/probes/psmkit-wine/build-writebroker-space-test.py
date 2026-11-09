@@ -51,7 +51,8 @@ broker = Path(__file__).resolve().parents[2] / 'writebroker/writebroker.c'
 client = args.wine / 'dlls/ntdll/unix/file.c'
 server_names = ('transfer', 'discard', 'menu_remove_index', 'menu_remove_path_allowed',
                 'menu_open_child_directory', 'menu_open_prefix_root', 'menu_open_remove_parent',
-                'menu_remove_at', 'menu_remove_tree', 'serve_menu_remove', 'serve_write',
+                'menu_remove_at', 'menu_remove_tree', 'serve_menu_remove', 'open_user_file',
+                'serve_write',
                 'repair_open_data_root', 'repair_open_relative_directory',
                 'repair_apply_mode', 'repair_scan_directory', 'repair_entry_at',
                 'repair_root', 'repair_all',

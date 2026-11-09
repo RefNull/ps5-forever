@@ -3,11 +3,14 @@
  * include/wine/ps5_writebroker.h for why and for the protocol).
  *
  * The title sends it through the ELF loader at start when no broker of its
- * protocol version (WB_VERSION) answers. It writes a fresh token to
- * WB_TOKEN_FILE, listens on 127.0.0.1:WB_PORT, and serves
- * each connection on its own thread. A copy already holding the port is
- * asked to exit and replaced. Logs go to the console log with the prefix
- * "writebroker: ". */
+ * protocol version (WB_VERSION) answers, and its watch and permission-repair
+ * restart may send more copies. Only one runs: a copy first takes
+ * WB_LOCK_FILE and then the port, and exits when a broker of its version
+ * already answers or is starting. Once it owns the port it repairs
+ * permissions, writes a fresh token to WB_TOKEN_FILE, listens on
+ * 127.0.0.1:WB_PORT, and serves each connection on its own thread. An older
+ * version holding the port is asked to exit and replaced. Logs go to the
+ * console log with the prefix "writebroker: ". */
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -35,6 +38,9 @@
 #define WB_MENU_PREFIX_ROOT WB_USER_ROOT "prefix"
 #endif
 #define WB_MENU_REMOVE_DEPTH 64u
+#ifndef WB_WRITE_ROOT
+#define WB_WRITE_ROOT WB_USER_ROOT
+#endif
 
 #define WB_CHUNK (1u << 20)
 
@@ -55,6 +61,9 @@
 #endif
 #ifndef WB_REPAIR_CLOSEDIR
 #define WB_REPAIR_CLOSEDIR closedir
+#endif
+#ifndef WB_LOCK_FILE
+#define WB_LOCK_FILE WB_USER_ROOT ".writebroker-lock"
 #endif
 
 static unsigned char token[WB_TOKEN_BYTES];
@@ -125,12 +134,12 @@ static int menu_open_child_directory(int parent, const char *name)
     return child < 0 ? -errno : child;
 }
 
-/* Open every component from the filesystem root, never following a link.
- * The returned descriptor anchors all later relative traversal. */
-static int menu_open_prefix_root(void)
+/* Open every component of root from the filesystem root, never following a
+ * link. The returned descriptor anchors all later relative traversal. */
+static int menu_open_prefix_root(const char *root)
 {
     char component[WB_MAX_PATH + 1];
-    const char *at = WB_MENU_PREFIX_ROOT;
+    const char *at = root;
     int current, next;
 
     if (!at || *at != '/') return -EINVAL;
@@ -237,7 +246,7 @@ static int menu_remove_tree(const char *path)
 
     if (index < 0) return -EACCES;
     relative = wb_menu_remove_relative((unsigned)index, 1);
-    if ((root = menu_open_prefix_root()) < 0) return root == -ENOENT ? 0 : root;
+    if ((root = menu_open_prefix_root(WB_MENU_PREFIX_ROOT)) < 0) return root == -ENOENT ? 0 : root;
     parent = menu_open_remove_parent(root, relative, leaf);
     if (parent < 0) return parent == -ENOENT ? 0 : parent;
     result = menu_remove_at(parent, leaf, 0);
@@ -269,15 +278,7 @@ struct wb_permission_repair
     unsigned failed;
     int result;
     dev_t device;
-    int private_valid;
-    dev_t private_device;
-    ino_t private_inode;
 };
-
-/* The Add-ons worker's private staging root (AW_NATIVE_ROOT in
- * ps5/addon-worker/protocol.h). The worker refuses a root that others can
- * write to, so widening it here broke Add-ons after every broker start. */
-#define WB_REPAIR_PRIVATE_ROOT "forever/prefix/drive_c/Forever/AddonStaging"
 
 static int repair_entry_at(
     int parent, const char *name, unsigned depth, struct wb_permission_repair *repair);
@@ -404,12 +405,6 @@ static int repair_entry_at(
         result = -errno;
         goto failed;
     }
-    if (repair->private_valid && before.st_dev == repair->private_device &&
-        before.st_ino == repair->private_inode)
-    {
-        repair->skipped++;
-        return 0;
-    }
     if (before.st_dev != repair->device)
     {
         repair->skipped++;
@@ -422,6 +417,17 @@ static int repair_entry_at(
         return 0;
     }
     if (S_ISREG(before.st_mode) && before.st_nlink > 1)
+    {
+        repair->skipped++;
+        return 0;
+    }
+    /* The repair exists for content a root tool (FTP, another payload) wrote
+     * with its default umask: others may read it but the title, which is not
+     * its owner, can neither write nor chmod it, and Wine's PS5 security
+     * mapping grants Battle.net's expected access only to world-rwx entries.
+     * An entry others cannot read was made private by its owner on purpose
+     * (the Add-ons worker's staging folder is one): leave it and what it holds. */
+    if (!(before.st_mode & S_IROTH))
     {
         repair->skipped++;
         return 0;
@@ -456,7 +462,7 @@ static int repair_entry_at(
         close(fd);
         goto failed;
     }
-    if (S_ISREG(opened.st_mode) && opened.st_nlink > 1)
+    if ((S_ISREG(opened.st_mode) && opened.st_nlink > 1) || !(opened.st_mode & S_IROTH))
     {
         repair->skipped++;
         close(fd);
@@ -606,25 +612,13 @@ static int repair_all(struct wb_permission_repair *repair)
         {"prosperostore/previous/PPSA99030", 0},
         {"prosperostore/previous/PPSA99030/wine", 1},
     };
-    int data_fd = repair_open_data_root(&repair->device), private_fd;
-    struct stat private_status;
+    int data_fd = repair_open_data_root(&repair->device);
 
     if (data_fd < 0)
     {
         repair->failed++;
         repair->result = data_fd;
         return data_fd;
-    }
-    private_fd = repair_open_relative_directory(data_fd, WB_REPAIR_PRIVATE_ROOT, repair->device);
-    if (private_fd >= 0)
-    {
-        if (!fstat(private_fd, &private_status))
-        {
-            repair->private_valid = 1;
-            repair->private_device = private_status.st_dev;
-            repair->private_inode = private_status.st_ino;
-        }
-        close(private_fd);
     }
     for (size_t i = 0; i < sizeof(roots) / sizeof(roots[0]); i++)
     {
@@ -669,14 +663,39 @@ static int broker_prepare_startup(void)
     return WB_STARTUP_WRITE_TOKEN();
 }
 
+/* An existing regular file below the user data root opened for writing, or
+ * -errno. The title sends wineserver's canonical (realpath) name, which holds
+ * no link, so no component is followed if it is one: a link planted below the
+ * root cannot redirect a write outside it. O_NONBLOCK keeps a FIFO from
+ * stalling the serving thread; only a regular file is accepted. */
+static int open_user_file(const char *path)
+{
+    char leaf[WB_MAX_PATH + 1];
+    size_t length = wb_path_root(path);
+    struct stat st;
+    int root, parent, fd;
+
+    if (!length || path[length - 1] != '/') return -EACCES;
+    if ((root = menu_open_prefix_root(WB_WRITE_ROOT)) < 0) return root;
+    if ((parent = menu_open_remove_parent(root, path + length - 1, leaf)) < 0) return parent;
+    fd = openat(parent, leaf, O_WRONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) fd = -errno;
+    close(parent);
+    if (fd >= 0 && (fstat(fd, &st) || !S_ISREG(st.st_mode)))
+    {
+        close(fd);
+        return -EINVAL;
+    }
+    return fd;
+}
+
 static int serve_write(int client, const struct wb_write *request, unsigned char *buffer)
 {
     char path[WB_MAX_PATH + 1];
     struct wb_reply reply = {.magic = WB_MAGIC};
     uint32_t remaining = request->length;
     uint64_t offset = request->offset;
-    struct stat st;
-    int fd = -1, result;
+    int fd = -1, result = 0;
 
     if (request->path_length == 0 || request->path_length > WB_MAX_PATH || request->length > WB_MAX_WRITE)
         return -1;  /* malformed: drop the connection */
@@ -685,9 +704,7 @@ static int serve_write(int client, const struct wb_write *request, unsigned char
     if (memchr(path, 0, request->path_length)) return -1;
 
     /* the user data root is the same path for the title and this payload */
-    result = wb_path_root(path) ? 0 : -EACCES;
-    if (!result && (fd = open(path, O_WRONLY)) < 0) result = -errno;
-    if (!result && (fstat(fd, &st) || !S_ISREG(st.st_mode))) result = -EINVAL;
+    if ((fd = open_user_file(path)) < 0) result = fd;
 
     while (remaining)
     {
@@ -912,69 +929,155 @@ static int write_token(void)
     return ok && !rename(temporary, name) ? 0 : -1;
 }
 
-/* ask a running broker to exit: it trusts whoever can read its token. An
- * older one answers only its own version's hello (version 1 closes the
- * connection on any other), so step down until one answers. */
-static void replace_running(void)
+/* What an accept() error means for the listener: -1 it is gone, 0 retry now
+ * (only that connection failed), 1 retry after a pause (descriptors, buffers
+ * or memory are short, and retrying at once would spin). */
+static int accept_error_action(int error)
+{
+    switch (error)
+    {
+    case EBADF: case EINVAL: case ENOTSOCK: case EOPNOTSUPP: return -1;
+    case EINTR: case ECONNABORTED: case EPROTO: return 0;
+    default: return 1;
+    }
+}
+
+/* What holds the port, from replace_running */
+enum
+{
+    WB_RUNNING_NONE,     /* nothing accepts */
+    WB_RUNNING_CURRENT,  /* a broker of this version answers: left running */
+    WB_RUNNING_REPLACED, /* another version answered and was asked to exit */
+    WB_RUNNING_OTHER,    /* something accepts, but no broker answers */
+};
+
+/* Ask a broker of another version on the port to exit: it trusts whoever can
+ * read its token. An older one answers only its own version's hello (version
+ * 1 closes the connection on any other), so step down until one answers. A
+ * broker of this version that accepts the token is left alone. Without a
+ * token file there is no token to invalidate: write this broker's own, which
+ * a running broker adopts. */
+static int replace_running(void)
 {
     struct sockaddr_in address = {.sin_family = AF_INET, .sin_port = htons(WB_PORT),
                                   .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
     struct wb_hello hello = {.magic = WB_MAGIC};
     struct wb_write quit = {.magic = WB_QUIT_MAGIC};
     struct wb_reply reply;
-    int fd = open(WB_TOKEN_FILE, O_RDONLY), ok;
+    struct timeval timeout = {.tv_sec = 1};
+    int fd = open(WB_TOKEN_FILE, O_RDONLY), ok, running = WB_RUNNING_NONE;
 
     ok = fd >= 0 && read(fd, hello.token, sizeof(hello.token)) == (ssize_t)sizeof(hello.token);
     if (fd >= 0) close(fd);
-    for (hello.version = WB_VERSION; ok && hello.version; hello.version--)
+    if (!ok)
     {
-        if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) return;
-        ok = !connect(fd, (struct sockaddr *)&address, sizeof(address));
-        if (ok && !transfer(fd, &hello, sizeof(hello), 1) && !transfer(fd, &reply, sizeof(reply), 0))
-        {
-            transfer(fd, &quit, sizeof(quit), 1);
-            say("asked the running broker to exit (version %u hello, reply %d)", hello.version, reply.result);
-            close(fd);
-            return;
-        }
-        close(fd);
+        if (WB_STARTUP_WRITE_TOKEN()) return WB_RUNNING_NONE;
+        memcpy(hello.token, token, sizeof(hello.token));
     }
+    for (hello.version = WB_VERSION; hello.version; hello.version--)
+    {
+        int error;
+
+        if ((fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) break;
+        /* a program that accepts and stays silent must not hold this one */
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+        if (connect(fd, (struct sockaddr *)&address, sizeof(address)))
+        {
+            close(fd);
+            break;
+        }
+        running = WB_RUNNING_OTHER;
+        if (!transfer(fd, &hello, sizeof(hello), 1) && !transfer(fd, &reply, sizeof(reply), 0))
+        {
+            if (reply.magic == WB_MAGIC && hello.version == WB_VERSION && !reply.result)
+                running = WB_RUNNING_CURRENT;
+            else if (reply.magic == WB_MAGIC)
+            {
+                transfer(fd, &quit, sizeof(quit), 1);
+                say("asked the running broker to exit (version %u hello, reply %d)",
+                    hello.version, reply.result);
+                running = WB_RUNNING_REPLACED;
+            }
+            close(fd);
+            break;
+        }
+        error = errno;
+        close(fd);
+        /* a closed connection is an older broker refusing this version */
+        if (error != EPIPE && error != ECONNRESET) break;
+    }
+    return running;
+}
+
+/* Make this the only broker: take WB_LOCK_FILE, then the port. The lock lasts
+ * as long as this process, so a second copy never repairs, writes the token
+ * or asks the first to quit, and a copy that cannot get the port never
+ * replaces the running broker's token. Where locks are unavailable the port
+ * alone decides. 0: this broker owns the port. 1: a broker of this version
+ * answers or is starting. -1: not started (logged). */
+static int claim_broker(int listener, const struct sockaddr_in *address)
+{
+    struct flock lock = {.l_type = F_WRLCK, .l_whence = SEEK_SET};
+    int fd = open(WB_LOCK_FILE, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    int locked = 0, running = WB_RUNNING_NONE, error = 0, attempt;
+
+    for (attempt = 0;; attempt++)
+    {
+        if (!locked && (fd < 0 || fcntl(fd, F_SETLK, &lock)))
+        {
+            error = errno;
+            if (fd < 0 || (error != EAGAIN && error != EACCES))
+            {
+                say("no lock %s errno=%d; the port alone decides", WB_LOCK_FILE, error);
+                locked = 1;
+            }
+        }
+        else locked = 1;
+        if (locked)
+        {
+            if (!bind(listener, (const struct sockaddr *)address, sizeof(*address)))
+                return 0; /* fd stays open: closing it would drop the lock */
+            if ((error = errno) != EADDRINUSE) break;
+        }
+        if (!attempt)
+        {
+            running = replace_running();
+            if (running == WB_RUNNING_CURRENT || (!locked && running != WB_RUNNING_REPLACED))
+            {
+                say("a broker of this version %s; exiting",
+                    running == WB_RUNNING_CURRENT ? "already answers" : "is starting");
+                if (fd >= 0) close(fd);
+                return 1;
+            }
+        }
+        /* an older broker was asked to exit: retry for 2 s */
+        if (attempt == 10) break;
+        usleep(200000);
+    }
+    if (fd >= 0) close(fd);
+    if (running == WB_RUNNING_OTHER && error == EADDRINUSE)
+        say("not started: port %d is held by another program (no write broker answers there)",
+            WB_PORT);
+    else
+        say("not started: %s errno=%d", locked ? "port" : WB_LOCK_FILE, error);
+    return -1;
 }
 
 int main(void)
 {
     struct sockaddr_in address = {.sin_family = AF_INET, .sin_port = htons(WB_PORT),
                                   .sin_addr.s_addr = htonl(INADDR_LOOPBACK)};
-    int listener = socket(AF_INET, SOCK_STREAM, 0), one = 1, attempt, prepared = 0;
+    int listener = socket(AF_INET, SOCK_STREAM, 0), one = 1, claimed, last_error = 0;
 
     if (listener < 0 || setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)))
     {
         say("not started: socket errno=%d", errno);
         return 1;
     }
-    /* an older copy holds the port: ask it to exit, then retry for 2 s. Write
-     * this broker's token first: the user data folder may be new (no token
-     * file), and a current broker adopts the file's token for the quit. */
-    for (attempt = 0; bind(listener, (struct sockaddr *)&address, sizeof(address)); attempt++)
-    {
-        if (errno != EADDRINUSE || attempt == 10)
-        {
-            say("not started: port %d errno=%d", WB_PORT, errno);
-            return 1;
-        }
-        if (!attempt)
-        {
-            if (broker_prepare_startup())
-            {
-                say("not started: cannot write %s errno=%d", WB_TOKEN_FILE, errno);
-                return 1;
-            }
-            prepared = 1;
-            replace_running();
-        }
-        usleep(200000);
-    }
-    if (!prepared && broker_prepare_startup())
+    if ((claimed = claim_broker(listener, &address))) return claimed < 0;
+    /* only now, owning the port, repair and replace the token */
+    if (broker_prepare_startup())
     {
         say("not started: cannot write %s errno=%d", WB_TOKEN_FILE, errno);
         return 1;
@@ -993,7 +1096,17 @@ int main(void)
         struct timeval timeout = {.tv_sec = 30};
         pthread_t thread;
 
-        if (client < 0) { if (errno == EINTR) continue; say("accept errno=%d", errno); break; }
+        if (client < 0)
+        {
+            int error = errno, action = accept_error_action(error);
+
+            if (action < 0) { say("accept errno=%d", error); break; }
+            if (action && error != last_error) say("accept errno=%d; retrying", error);
+            last_error = error;
+            if (action) usleep(100000);
+            continue;
+        }
+        last_error = 0;
         /* an idle title connection may wait as long as it likes; a stuck reply may not */
         setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
         setsockopt(client, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));

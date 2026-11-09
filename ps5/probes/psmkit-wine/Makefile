@@ -112,7 +112,9 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 		$(HOST_OUT)/test-runtime-relaunch $(HOST_OUT)/test-wow-channels \
 		$(HOST_OUT)/test-battlenet-restart $(HOST_OUT)/test-audio-mixer \
 		$(HOST_OUT)/test-audio-selection $(HOST_OUT)/test-fd-parking \
-		$(HOST_OUT)/test-writebroker-autostart $(HOST_OUT)/test-writebroker-space $(HOST_OUT)/test-title-log \
+		$(HOST_OUT)/test-writebroker-autostart $(HOST_OUT)/test-writebroker-space $(HOST_OUT)/test-writebroker-open \
+		$(HOST_OUT)/test-writebroker-lifecycle $(HOST_OUT)/test-title-port-owner \
+		$(HOST_OUT)/test-title-log \
 		$(HOST_OUT)/test-forever-setup $(HOST_OUT)/test-forever-menu $(HOST_OUT)/test-forever-exit \
 		$(HOST_OUT)/test-addonforge-client $(HOST_OUT)/test-addonforge-worker $(HOST_OUT)/test-addonforge-security $(HOST_OUT)/test-addon-trash-native \
 		$(HOST_OUT)/test-addon-native-worker $(HOST_OUT)/addon-worker-host $(HOST_OUT)/test-addon-worker-elf \
@@ -152,6 +154,9 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 	$(HOST_OUT)/test-fd-parking
 	$(HOST_OUT)/test-writebroker-autostart
 	$(HOST_OUT)/test-writebroker-space
+	$(HOST_OUT)/test-writebroker-open
+	$(HOST_OUT)/test-writebroker-lifecycle
+	$(HOST_OUT)/test-title-port-owner
 	$(HOST_OUT)/test-title-log
 	$(HOST_OUT)/test-forever-setup
 	$(HOST_OUT)/test-forever-menu
@@ -267,6 +272,32 @@ $(HOST_OUT)/test-writebroker-space: test-writebroker-space.c build-writebroker-s
 		writebroker-menu.h $(WRITEBROKER_DIR)/writebroker.c $(WINE_SRC)/dlls/ntdll/unix/file.c \
 		$(WINE_SRC)/include/wine/ps5_writebroker.h
 	python3 build-writebroker-space-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
+
+.PHONY: test-writebroker-open
+test-writebroker-open: $(HOST_OUT)/test-writebroker-open
+	$(HOST_OUT)/test-writebroker-open
+
+$(HOST_OUT)/test-writebroker-open: test-writebroker-open.c build-writebroker-open-test.py \
+		build-desktop-surface-test.py $(WRITEBROKER_DIR)/writebroker.c \
+		$(WINE_SRC)/include/wine/ps5_writebroker.h
+	python3 build-writebroker-open-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
+
+.PHONY: test-writebroker-lifecycle
+test-writebroker-lifecycle: $(HOST_OUT)/test-writebroker-lifecycle
+	$(HOST_OUT)/test-writebroker-lifecycle
+
+$(HOST_OUT)/test-writebroker-lifecycle: test-writebroker-lifecycle.c build-writebroker-lifecycle-test.py \
+		writebroker-menu.h $(WRITEBROKER_DIR)/writebroker.c $(WINE_SRC)/include/wine/ps5_writebroker.h
+	python3 build-writebroker-lifecycle-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
+
+.PHONY: test-title-port-owner
+test-title-port-owner: $(HOST_OUT)/test-title-port-owner
+	$(HOST_OUT)/test-title-port-owner
+
+$(HOST_OUT)/test-title-port-owner: test-title-port-owner.c build-title-port-owner-test.py \
+		build-desktop-surface-test.py native-entry.c writebroker-autostart.h writebroker-menu.h \
+		../../addon-worker/protocol.h $(WINE_SRC)/include/wine/ps5_writebroker.h
+	python3 build-title-port-owner-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
 
 $(HOST_OUT)/test-wow-channels: test-wow-channels.c wow-channels.h forever-setup.h $(PREFIX_INIT_HEADER) sha256.h
 	mkdir -p $(HOST_OUT)

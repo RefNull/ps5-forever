@@ -3129,10 +3129,12 @@ done:
 
 /* 1: a broker of this app's protocol version answers. 0: none, or one left
  * running by an older app (it refuses or reports another version), which the
- * broker this app sends replaces. -1 with *error otherwise. */
+ * broker this app sends replaces. -1 with *error otherwise: EADDRINUSE when
+ * another program holds the port (it accepts, but no broker answers), where
+ * a broker sent now could not listen either. */
 static int pw_writebroker_probe(void *context, int64_t deadline, int *error)
 {
-    static int reported;
+    static int reported, foreign;
     struct wb_hello hello = {.magic = WB_MAGIC, .version = WB_VERSION};
     struct wb_reply reply, capabilities;
     struct wb_write menu_request = {.magic = WB_MENU_CAPS_MAGIC};
@@ -3159,22 +3161,37 @@ static int pw_writebroker_probe(void *context, int64_t deadline, int *error)
             capabilities.result == WB_MENU_CAPS_REMOVE)
         {
             close(fd);
+            foreign = 0;
             return 1;
         }
+        if (reply.magic == WB_MAGIC)
+        {
+            close(fd);
+            if (!reported++)
+                io_log("title write broker lacks menu removal capability; replacing it");
+            return 0;
+        }
+    }
+    else if (!have_token || errno == EPIPE)
+    {
         close(fd);
-        if (!reported++)
-            io_log("title write broker lacks menu removal capability; replacing it");
+        if (!reported++) io_log("title write broker refused this app's hello (older version or new token); replacing it");
         return 0;
     }
-    if (have_token && errno != EPIPE)
+    else if (errno != ETIMEDOUT)
     {
         *error = errno ? errno : EIO;
         close(fd);
         return -1;
     }
+    /* A broker answers its hello at once: a silent or foreign answer is not one. */
     close(fd);
-    if (!reported++) io_log("title write broker refused this app's hello (older version or new token); replacing it");
-    return 0;
+    *error = EADDRINUSE;
+    if (!foreign++)
+        io_log("title write broker port %d is held by another program (it accepts, but no "
+               "write broker answers); title writes stay on the slower direct path",
+               PW_WRITEBROKER_PORT);
+    return -1;
 }
 
 static int pw_writebroker_send_elf(void *context, int64_t deadline, size_t *sent,
@@ -3495,6 +3512,24 @@ static int pw_addon_worker_request(const char token[AW_TOKEN_BYTES], uint32_t co
     return pw_addon_worker_request_until(token, command, io_now_ms() + 2000);
 }
 
+/* 1 when what accepts on AW_PORT answers an add-on worker hello (any token),
+ * 0 when it does not, -1 when nothing accepts. */
+static int pw_addon_worker_answers(int64_t deadline)
+{
+    unsigned char hello[AW_HELLO_BYTES] = {0}, challenge[AW_CHALLENGE_REPLY_BYTES] = {0};
+    int fd = pw_writebroker_connect_port(AW_PORT, deadline), answers;
+    if (fd < 0) return errno == ECONNREFUSED ? -1 : 0;
+    pw_addon_worker_put_u32(hello, AW_MAGIC);
+    pw_addon_worker_put_u32(hello + 4, AW_VERSION);
+    answers = !pw_writebroker_transfer(fd, hello, sizeof(hello), 1, deadline) &&
+              !pw_writebroker_transfer(fd, challenge, sizeof(challenge), 0, deadline) &&
+              pw_addon_worker_get_u32(challenge) == AW_MAGIC;
+    close(fd);
+    return answers;
+}
+
+/* 0 once nothing accepts on AW_PORT. -ETIMEDOUT: a worker still answers.
+ * -EADDRINUSE: another program holds the port, so no worker can listen. */
 static int pw_addon_worker_wait_stopped(void)
 {
     int64_t deadline = io_now_ms() + 2000;
@@ -3503,7 +3538,14 @@ static int pw_addon_worker_wait_stopped(void)
         int64_t now = io_now_ms();
         int fd;
         if (now < 0) return -(errno ? errno : EIO);
-        if (now >= deadline) return -ETIMEDOUT;
+        if (now >= deadline)
+        {
+            int answers = pw_addon_worker_answers(now + 1000);
+            if (answers) return answers < 0 ? 0 : -ETIMEDOUT;
+            io_log("forever addon worker port %u is held by another program (it accepts, but "
+                   "no add-on worker answers); Add-ons cannot start until it stops", AW_PORT);
+            return -EADDRINUSE;
+        }
         fd = pw_writebroker_connect_port(
             AW_PORT, pw_writebroker_min_deadline(now + PW_WRITEBROKER_PROBE_MS, deadline));
         if (fd < 0)

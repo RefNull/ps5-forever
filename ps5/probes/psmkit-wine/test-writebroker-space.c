@@ -160,6 +160,7 @@ static int fake_startup_token(void)
 #define open(path, ...) open(server_path(path), __VA_ARGS__)
 #define pwrite(fd, buffer, length, offset) server_pwrite(fd, buffer, length, offset)
 #define WB_MENU_PREFIX_ROOT menu_prefix_root
+#define WB_WRITE_ROOT directory
 #define WB_MENU_REMOVE_DEPTH 64u
 enum { TEST_REPAIR_MAX_ENTRIES = 32, TEST_REPAIR_MAX_DEPTH = 8 };
 #undef WB_REPAIR_MAX_ENTRIES
@@ -466,17 +467,17 @@ static void permission_repair_tests(void)
     assert(!chmod(forever, 0555));
     assert(!chmod(locked, 0555));
     assert(!chmod(private_dir, 0700));
-    assert(!chmod(child, 0400));
-    assert(!chmod(executable, 0500));
+    assert(!chmod(child, 0444));
+    assert(!chmod(executable, 0555));
     assert(!chmod(token_file, 0600));
     assert(!chmod(outside, 0400));
     assert(!chmod(unmanaged, 0400));
-    assert(!chmod(hardlinked, 0400));
-    assert(!chmod(other_device, 0400));
+    assert(!chmod(hardlinked, 0444));
+    assert(!chmod(other_device, 0444));
     assert(!chmod(legacy_parent, 0555));
-    assert(!chmod(legacy_file, 0400));
+    assert(!chmod(legacy_file, 0444));
     assert(!chmod(sibling, 0400));
-    assert(!chmod(store_file, 0400));
+    assert(!chmod(store_file, 0444));
     assert(!chmod(staging_file, 0600));
     assert(!chmod(staging_session, 0700));
     assert(!chmod(staging, 0711));
@@ -492,16 +493,17 @@ static void permission_repair_tests(void)
     check(!result && !repair.failed && repair.changed >= 8 && repair.skipped >= 3,
           "production startup repair reports changed, skipped and failed counts");
     check(fixture_mode(forever) == 0777 && fixture_mode(locked) == 0777 &&
-          fixture_mode(private_dir) == 0777 && fixture_mode(child) == 0666 &&
-          fixture_mode(executable) == 0777,
-          "startup repair makes 0555/0700 directories 0777 and preserves executable files");
+          fixture_mode(child) == 0666 && fixture_mode(executable) == 0777,
+          "startup repair makes 0555 directories 0777 and preserves executable files");
+    check(fixture_mode(private_dir) == 0700,
+          "startup repair leaves an owner-private directory alone");
     check(!mkdir(made, 0700), "startup repair permits the failed title step to retry once");
     check(!lstat(link_path, &status) && S_ISLNK(status.st_mode) &&
           fixture_mode(outside) == 0400,
           "startup repair skips an internal symlink without changing its target");
-    check(fixture_mode(hardlinked) == 0400 && fixture_mode(hardlink_outside) == 0400,
+    check(fixture_mode(hardlinked) == 0444 && fixture_mode(hardlink_outside) == 0444,
           "startup repair skips multiply-linked regular files");
-    check(fixture_mode(other_device) == 0400,
+    check(fixture_mode(other_device) == 0444,
           "startup repair skips an entry reported on another device");
     check(fixture_mode(token_file) == 0600,
           "startup repair never widens the authentication token");
