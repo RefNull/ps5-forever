@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: RefNull <82533767+RefNull@users.noreply.github.com>
+Date: Mon, 9 Nov 2026 21:28:44 +0100
+Subject: [PATCH] vkd3d: Do not filter a stretched HDR10 present blit.
+
+- An HDR10 (ST2084) swapchain image holds PQ codes, which are far from
+  linear in light. When the game's buffers are smaller than the output
+  (WoW at 1920x1080 on a 3840x2160 surface), the present blit stretched
+  them with VK_FILTER_LINEAR, blending codes: at 2x every output pixel is
+  a mix of up to four source pixels, with a brightness and colour none of
+  them has.
+- Use VK_FILTER_NEAREST for HDR10 swapchains. A 1:1 blit is unchanged;
+  SDR output keeps linear filtering.
+- Log the blit's source and target size, colour space and filter whenever
+  they change, so a console log shows which path a frame took.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ libs/vkd3d/swapchain.c | 28 +++++++++++++++++++++++++++-
+ 1 file changed, 27 insertions(+), 1 deletion(-)
+
+diff --git a/libs/vkd3d/swapchain.c b/libs/vkd3d/swapchain.c
+index 8d2a60b..677abac 100644
+--- a/libs/vkd3d/swapchain.c
++++ b/libs/vkd3d/swapchain.c
+@@ -443,6 +443,7 @@ struct dxgi_vk_swap_chain
+             uint32_t auto_unknown_writer_count;
+             uint64_t auto_candidate_writer;
+             uint64_t auto_unknown_writers[DXGI_VK_HDR_AUTO_UNKNOWN_WRITER_COUNT];
++            uint64_t blit_logged;
+         } hdr;
+         struct wineps5_hud hud;
+         struct wineps5_fg_present fg;
+@@ -3660,7 +3661,32 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
+ 
+     if (blit_command)
+     {
++        VkFilter filter = VK_FILTER_LINEAR;
+         VkImageBlit blit;
++        uint64_t blit_key;
++
++        /* PS5: HDR10 images hold PQ codes, which are far from linear in light.
++         * A filtered stretch blends codes, so each upscaled edge (each pixel
++         * at 2x) gets a colour and brightness neither source pixel has.
++         * Replicate pixels instead; a 1:1 blit is unchanged either way. */
++        if (chain->present.backbuffer_color_space == VK_COLOR_SPACE_HDR10_ST2084_EXT)
++            filter = VK_FILTER_NEAREST;
++
++        blit_key = (uint64_t)(chain->desc.Width & 0xffff) |
++                (uint64_t)(chain->desc.Height & 0xffff) << 16 |
++                (uint64_t)(chain->present.backbuffer_width & 0xffff) << 32 |
++                (uint64_t)(chain->present.backbuffer_height & 0x7fff) << 48 |
++                (uint64_t)(filter == VK_FILTER_NEAREST) << 63;
++        if (blit_key != chain->present.hdr.blit_logged)
++        {
++            chain->present.hdr.blit_logged = blit_key;
++            ERR("WINEPS5 vkd3d present blit src=%ux%u dst=%ux%u color_space=%d filter=%s\n",
++                    chain->desc.Width, chain->desc.Height,
++                    chain->present.backbuffer_width, chain->present.backbuffer_height,
++                    chain->present.backbuffer_color_space,
++                    filter == VK_FILTER_NEAREST ? "nearest" : "linear");
++        }
++
+         memset(&blit, 0, sizeof(blit));
+         blit.dstSubresource.layerCount = 1;
+         blit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+@@ -3678,7 +3704,7 @@ static void dxgi_vk_swap_chain_record_render_pass(struct dxgi_vk_swap_chain *cha
+                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                 chain->present.vk_backbuffer_images[swapchain_index],
+                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+-                1, &blit, VK_FILTER_LINEAR));
++                1, &blit, filter));
+     }
+     else
+     {
+-- 
+2.54.0 (Apple Git-157)
+
