@@ -6,9 +6,9 @@ runtime, helpers) plus the build glue. Wine, Vulkan/RADV, the payload SDK,
 vkd3d-proton, DXVK, AddonForge and the pacbrew recipes are separate pinned
 forks: `ps5/release/fetch-sources.py SOURCE_ROOT` checks them out next to this
 checkout (`SOURCE_ROOT/ps5-proton/ps5-wow`). Changes this fork makes to them
-are numbered patches applied on top of the pin (`ps5/radv/patches/`,
-`ps5/vkd3d-proton/patches/`, `ps5/addonforge/patches/`); refresh a patch when
-its pin moves.
+are numbered patches applied on top of the pin (`ps5/wine/patches/`,
+`ps5/radv/patches/`, `ps5/vkd3d-proton/patches/`, `ps5/addonforge/patches/`);
+refresh a patch when its pin moves.
 
 ## Layout
 

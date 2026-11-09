@@ -5,6 +5,7 @@
 # and x86_64 with llvm-mingw; host tools (winebuild, widl, wrc, winegcc) built
 # natively first.
 #
+#   ps5/build-wine.sh patch       apply ps5/wine/patches to the checkout, then stop
 #   ps5/build-wine.sh configure   generate wine/configure if needed, configure both trees
 #   ps5/build-wine.sh [targets]   make in the PS5 tree (default: loader, server, ntdll)
 #
@@ -186,6 +187,33 @@ configure() {
     fi
     echo "configured: $cross"
 }
+
+# Apply ps5/wine/patches/*.patch, in name order, to the pinned checkout. A
+# stamp in its Git directory names the applied series, so a rerun skips it and
+# a changed series first restores the files the old one touched. The release
+# Wine cache key includes the series, so a patched tree never reuses objects
+# built from an unpatched one, or the reverse.
+shopt -s nullglob
+patches=("$here"/wine/patches/*.patch)
+shopt -u nullglob
+stamp=$(git -C "$src" rev-parse --path-format=absolute --git-path forever-patches)
+series=$( (( ${#patches[@]} )) && cat "${patches[@]}" | git hash-object --stdin || echo none)
+if [[ $(cat "$stamp" 2>/dev/null) != "$series" ]]; then
+    if [[ -f $stamp ]]; then
+        git -C "$src" checkout -- .
+    elif ! git -C "$src" diff --quiet HEAD; then
+        printf '%s has local changes; ps5/wine/patches applies only to a clean pinned checkout\n' \
+            "$src" >&2
+        exit 1
+    fi
+    rm -f "$stamp"
+    for patch in "${patches[@]}"; do
+        printf 'applying %s\n' "${patch##*/}"
+        git -C "$src" apply "$patch"
+    done
+    printf '%s\n' "$series" > "$stamp"
+fi
+[[ ${1:-} != patch ]] || exit 0
 
 if [[ ${1:-} == configure ]]; then
     configure

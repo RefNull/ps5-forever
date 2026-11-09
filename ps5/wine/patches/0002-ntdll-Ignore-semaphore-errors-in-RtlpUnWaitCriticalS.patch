@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Paul Gofman <pgofman@codeweavers.com>
+Date: Tue, 20 Oct 2026 15:29:05 -0600
+Subject: [PATCH 2/5] ntdll: Ignore semaphore errors in
+ RtlpUnWaitCriticalSection().
+
+CW-Bug-Id: #27891
+(cherry picked from commit d5c4b850198dad2e32dbf96d1fc5ad31029c8c70)
+---
+ dlls/ntdll/sync.c | 7 ++-----
+ 1 file changed, 2 insertions(+), 5 deletions(-)
+
+diff --git a/dlls/ntdll/sync.c b/dlls/ntdll/sync.c
+index 894b5db325..f74750a054 100644
+--- a/dlls/ntdll/sync.c
++++ b/dlls/ntdll/sync.c
+@@ -383,19 +383,16 @@ NTSTATUS WINAPI RtlpWaitForCriticalSection( RTL_CRITICAL_SECTION *crit )
+  */
+ NTSTATUS WINAPI RtlpUnWaitCriticalSection( RTL_CRITICAL_SECTION *crit )
+ {
+-    NTSTATUS ret;
+     HANDLE sem = get_semaphore( crit );
+ 
+-    if (sem) ret = NtReleaseSemaphore( sem, 1, NULL );
++    if (sem) NtReleaseSemaphore( sem, 1, NULL );
+     else
+     {
+         LONG *lock = (LONG *)&crit->LockSemaphore;
+         InterlockedExchange( lock, 1 );
+         RtlWakeAddressSingle( lock );
+-        ret = STATUS_SUCCESS;
+     }
+-    if (ret) RtlRaiseStatus( ret );
+-    return ret;
++    return STATUS_SUCCESS;
+ }
+ 
+ 
+-- 
+2.54.0 (Apple Git-157)
+

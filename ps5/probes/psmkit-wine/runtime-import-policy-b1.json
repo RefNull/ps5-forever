@@ -3582,6 +3582,13 @@
       "binding": "strong",
       "module": "win32u.so",
       "owner": "title_ntdll",
+      "symbol": "NtCreateEvent",
+      "target": "NtCreateEvent"
+    },
+    {
+      "binding": "strong",
+      "module": "win32u.so",
+      "owner": "title_ntdll",
       "symbol": "NtCreateKey",
       "target": "NtCreateKey"
     },
@@ -3696,6 +3703,13 @@
       "owner": "title_ntdll",
       "symbol": "NtMapViewOfSection",
       "target": "NtMapViewOfSection"
+    },
+    {
+      "binding": "strong",
+      "module": "win32u.so",
+      "owner": "title_ntdll",
+      "symbol": "NtNotifyChangeKey",
+      "target": "NtNotifyChangeKey"
     },
     {
       "binding": "strong",

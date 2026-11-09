@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Alexandre Julliard <julliard@winehq.org>
+Date: Tue, 3 Nov 2026 14:12:33 +0100
+Subject: [PATCH 4/5] ntdll: Close the reply pipe before sending the initial
+ request.
+
+Wine-Bug: https://bugs.winehq.org/show_bug.cgi?id=60663
+(cherry picked from commit 48c5aa7ffa425664dea74c7cf936426b57c0aec2)
+(preemptive cherry-pick)
+(cherry picked from commit 56e5a95950f82263a479d417ce54f770a29ca2e4)
+---
+ dlls/ntdll/unix/server.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/dlls/ntdll/unix/server.c b/dlls/ntdll/unix/server.c
+index 55070d5a60..1c51870ca4 100644
+--- a/dlls/ntdll/unix/server.c
++++ b/dlls/ntdll/unix/server.c
+@@ -4345,6 +4345,7 @@ size_t server_init_process(void)
+ 
+     fill_cpu_override();
+     cpu_override = get_cpu_topology_override();
++    close( reply_pipe );
+ 
+     SERVER_START_REQ( init_first_thread )
+     {
+@@ -4378,7 +4379,6 @@ size_t server_init_process(void)
+         }
+     }
+     SERVER_END_REQ;
+-    close( reply_pipe );
+ 
+     if (ret) server_protocol_error( "init_first_thread failed with status %x\n", ret );
+ 
+@@ -4500,6 +4500,8 @@ void server_init_thread( void *entry_point, BOOL *suspend )
+     if (title_runtime.exit) register_title_thread( teb, FALSE );
+ #endif
+ 
++    close( reply_pipe );
++
+     SERVER_START_REQ( init_thread )
+     {
+         req->unix_tid  = get_unix_tid();
+@@ -4511,7 +4513,6 @@ void server_init_thread( void *entry_point, BOOL *suspend )
+         *suspend = reply->suspend;
+     }
+     SERVER_END_REQ;
+-    close( reply_pipe );
+ }
+ 
+ NTSTATUS WINAPI NtAllocateReserveObject( HANDLE *handle, const OBJECT_ATTRIBUTES *attr,
+-- 
+2.54.0 (Apple Git-157)
+

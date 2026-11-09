@@ -247,6 +247,7 @@ cache_key_wine() {
     cache_key_common wine \
         --source PS5_PayloadSDK --source PS5_Vulkan \
         --path "$wow/ps5/build-wine.sh" \
+        --path "$wow/ps5/wine" \
         --path "$wow/ps5/paths.sh" \
         --path "$WINE_SRC/configure.ac" \
         --path "$WINE_SRC/configure" \
@@ -317,6 +318,8 @@ build_wine() {
     local key hit=false wine_build_real cache_outputs
     local build=ps5-proton/ps5-wow/ps5/build
     key=$(cache_key_wine)
+    # Patch the checkout before the source index and server headers are read.
+    bash ps5/build-wine.sh patch
     WINE_DESCRIBE=$(pin source ps5-wine describe)
     export WINE_DESCRIBE
     if python3 "$cache_helper" wine-prepare --cache "$FOREVER_BUILD_CACHE" \
