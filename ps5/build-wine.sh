@@ -19,6 +19,8 @@
 # WINE_REPRO_FLAGS and WINE_TOOLS_REPRO_FLAGS optionally normalize
 # build-directory paths in debug data; release cache orchestration sets them,
 # while ordinary builds leave them empty.
+# WINE_CCACHE_DIR optionally caches the PE cross compilers' objects there with
+# ccache (WINE_CCACHE, default `ccache` on PATH); the release build sets both.
 set -euo pipefail
 here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # WINE_SRC selects another checkout when explicitly comparing revisions.
@@ -47,6 +49,27 @@ jobs=${JOBS:-8}
 wine_ps5_extra_cflags=${WINE_PS5_EXTRA_CFLAGS:-}
 unset CPPFLAGS LDFLAGS CFLAGS CXXFLAGS
 export PATH=$mingw/bin:${BISON_BIN:-/opt/homebrew/opt/bison/bin}:$PATH
+
+# ccache masquerades as the PE compilers ahead of llvm-mingw on PATH, so the
+# configured commands (Makefile, compile_commands.json) name the same
+# compilers. A hit requires the same compiler, arguments and preprocessed
+# input, so it yields the bytes the compiler would. The working directory is
+# not hashed: it is the per-key cache path, and every PE compile fixes its
+# debug directory with -fdebug-compilation-dir (WINE_REPRO_FLAGS). The
+# directory itself must be specific to the toolchain (the caller keys it).
+if [[ -n ${WINE_CCACHE_DIR:-} ]]; then
+    ccache=$(command -v "${WINE_CCACHE:-ccache}")
+    ccache_bin=$here/build/wine-ccache-bin
+    mkdir -p "$ccache_bin" "$WINE_CCACHE_DIR"
+    for name in i686-w64-mingw32-gcc i686-w64-mingw32-clang \
+        x86_64-w64-mingw32-gcc x86_64-w64-mingw32-clang; do
+        ln -sfn "$ccache" "$ccache_bin/$name"
+    done
+    export CCACHE_DIR=$WINE_CCACHE_DIR CCACHE_NOHASHDIR=1 CCACHE_COMPILERCHECK=content \
+        CCACHE_MAXSIZE=${WINE_CCACHE_MAXSIZE:-4G}
+    export PATH=$ccache_bin:$PATH
+    "$ccache" --zero-stats > /dev/null
+fi
 
 # Wine embeds `GIT_DIR=$src/.git git describe HEAD` in ntdll (the
 # dlls/ntdll/unix/version.c rule) and falls back to wine-$(PACKAGE_VERSION)
@@ -257,5 +280,11 @@ if [[ -n ${WINE_DESCRIBE:-} && -f $version_c &&
     status=1
 fi
 grep -E "error:|\*\*\*|undefined symbol" "$cross/make.log" | sort | uniq -c | sort -rn | head -40 || true
+if [[ -n ${WINE_CCACHE_DIR:-} ]]; then
+    "$ccache" --print-stats | awk -F'\t' '
+        $1 ~ /^(direct_cache_hit|preprocessed_cache_hit)$/ { hit += $2 }
+        $1 == "cache_miss" { miss = $2 }
+        END { printf "WINE_CCACHE hits=%d misses=%d\n", hit, miss }'
+fi
 echo "make status $status, log $cross/make.log"
 exit "$status"

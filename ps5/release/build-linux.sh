@@ -323,6 +323,29 @@ build_gnutls_cached() {
         ps5-proton/ps5-wow/ps5/build/gnutls-stage -- \
         bash ps5/build-gnutls.sh
 }
+# The pinned static ccache, verified and unpacked once into the build cache;
+# the image does not carry it. Prints the binary's path.
+install_ccache() {
+    local url sha256 key directory archive
+    IFS=$'\t' read -r url sha256 <<< "$(pin download ccache url sha256)"
+    key=$( (cat "$here/Dockerfile"; printf '%s\n' "$sha256") | sha256sum | cut -c1-16)
+    directory=$FOREVER_BUILD_CACHE/ccache/$key
+    archive=$FOREVER_BUILD_CACHE/ccache/${url##*/}
+    mkdir -p "$FOREVER_BUILD_CACHE/ccache"
+    find "$FOREVER_BUILD_CACHE/ccache" -mindepth 1 -maxdepth 1 ! -name "$key" \
+        ! -name "${url##*/}" -exec rm -rf {} +
+    if [[ ! -f $archive ]]; then
+        curl --fail --silent --show-error --location --output "$archive.part" "$url" >&2
+        printf '%s  %s\n' "$sha256" "$archive.part" | sha256sum -c - >&2
+        mv "$archive.part" "$archive"
+    fi
+    if [[ ! -x $directory/bin/ccache ]]; then
+        printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c - >&2
+        mkdir -p "$directory/bin"
+        tar -xJf "$archive" -C "$directory/bin" --strip-components=1 --wildcards '*/ccache'
+    fi
+    printf '%s\n' "$directory/bin/ccache"
+}
 build_wine() {
     local key hit=false wine_build_real cache_outputs
     local build=ps5-proton/ps5-wow/ps5/build
@@ -354,6 +377,12 @@ build_wine() {
     # cover the physical cache directory as a whole.
     export WINE_REPRO_FLAGS="-fdebug-compilation-dir=$root/$build/wine-ps5-build"
     export WINE_TOOLS_REPRO_FLAGS="-ffile-prefix-map=$cache_outputs=$root"
+    # ccache keeps PE objects across Wine keys, so a patch change recompiles
+    # only what it affects. Its directory is keyed by the Dockerfile (which
+    # pins llvm-mingw) and the ccache pin; other keys' directories are removed.
+    export WINE_CCACHE WINE_CCACHE_DIR
+    WINE_CCACHE=$(install_ccache)
+    WINE_CCACHE_DIR=$(dirname "$(dirname "$WINE_CCACHE")")/objects
     python3 "$cache_helper" wine-sync-source --cache "$FOREVER_BUILD_CACHE" \
         --key "$key" --source "$WINE_SRC"
     python3 "$cache_helper" wine-restore-headers --cache "$FOREVER_BUILD_CACHE" \

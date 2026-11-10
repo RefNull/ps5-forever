@@ -155,6 +155,11 @@
   "rust_toolchain": "1.99.1",
   "downloads": [
     {
+      "name": "ccache-4.14.2",
+      "url": "https://github.com/ccache/ccache/releases/download/v4.14.2/ccache-4.14.2-linux-x86_64-musl-static.tar.xz",
+      "sha256": "b20ff6415151226ac5a10dfd6839700c694bd67d1871c8fddb266d366ff25bfb"
+    },
+    {
       "name": "llvm-mingw",
       "url": "https://github.com/mstorsjo/llvm-mingw/releases/download/20260922/llvm-mingw-20260922-ucrt-ubuntu-22.04-x86_64.tar.xz",
       "sha256": "bb7bb7654b33d5aa8712acb837c963b2e0c56352560c76105270a3268c665c21"

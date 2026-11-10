@@ -142,6 +142,13 @@ rebuilds that stage. Wine keeps its out-of-tree build and host-tool trees there
 for incremental `make`, but reconfigures from an empty tree when its configure
 key changes. Its compiler flags map the physical cache root back to `/sources`,
 keeping the debug paths and release bytes of an ordinary `ps5/build` tree.
+Wine's PE objects also go through ccache, a static release pinned in
+`deps.json` and unpacked into `.cache/ccache/<key>` (keyed by the Dockerfile
+and the ccache pin; the image does not carry it), so a new Wine key (for
+example a patch change) recompiles only affected files. A hit needs the same
+compiler, arguments and preprocessed input, so it yields the compiler's own
+bytes; the working directory is not hashed because every PE compile fixes its
+debug directory. No other stage uses ccache.
 
 Set the Release workflow's `clean` dispatch input to discard this cache before
 building. The workflow keeps the two newest entries per stage and logs
