@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Mihawk <163614687+mihawk-99@users.noreply.github.com>
+Date: Sat, 10 Oct 2026 13:34:12 -0400
+Subject: [PATCH] wsi/videoout: a failed vblank wait is not taken for 119.88 Hz
+
+A failed vblank wait (period 0) was taken for 119.88 Hz: the measured
+period was not above the limit, so the mode stayed counted. It now
+restores 59.94 Hz and says the wait failed.
+
+The rest of the upstream commit, configuring the mode only on a positive
+IsOutputSupported answer, is already in the pinned source.
+
+(cherry picked from commit 47e9eb61ee7e1112194557e1e047178562827bc6,
+the vblank-period part only)
+---
+ src/vulkan/wsi/wsi_common_videoout.c | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/src/vulkan/wsi/wsi_common_videoout.c b/src/vulkan/wsi/wsi_common_videoout.c
+index ccf3bb50d55..41d1c7833bc 100644
+--- a/src/vulkan/wsi/wsi_common_videoout.c
++++ b/src/vulkan/wsi/wsi_common_videoout.c
+@@ -840,13 +840,17 @@ videoout_open_locked(void)
+              * from fixed 60 Hz, so ConfigureOutput is authoritative. */
+             fprintf(stderr, "wsi/videoout: 119.88 Hz selected with title VRR metadata\n");
+          } else {
++            /* A period of 0 is a failed wait: never taken for 119.88 Hz */
+             const uint64_t period = videoout_vblank_period_ns(out->handle);
+-            if (period > VIDEOOUT_HIGH_REFRESH_LIMIT_NS) {
++            if (period == 0 || period > VIDEOOUT_HIGH_REFRESH_LIMIT_NS) {
+                sceVideoOutConfigureOutput(out->handle, PS5_VIDEO_OUT_MODE_RESTORE, NULL, NULL, NULL);
+                out->high_frame_rate = false;
+-               fprintf(stderr,
+-                       "wsi/videoout: 119.88 Hz accepted, but a vblank comes every %.3f ms; "
+-                       "59.94 Hz restored\n", (double)period / 1e6);
++               if (period == 0)
++                  fprintf(stderr, "wsi/videoout: 119.88 Hz accepted, but a vblank wait failed; 59.94 Hz restored\n");
++               else
++                  fprintf(stderr,
++                          "wsi/videoout: 119.88 Hz accepted, but a vblank comes every %.3f ms; "
++                          "59.94 Hz restored\n", (double)period / 1e6);
+             }
+          }
+       } else {

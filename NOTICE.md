@@ -22,7 +22,7 @@ instructions.
 | [ps5-framegen](https://github.com/swordpdf/ps5-framegen) (swordpdf), revision `64362101757c` | GPL-3.0-or-later | `vkd3d-proton/libs/vkd3d/wineps5_fsr3fg/` |
 | [AMD FidelityFX SDK](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK) 2.3.0 shaders | MIT | FSR 3 optical flow and interpolation shaders |
 | [DXVK](https://github.com/doitsujin/dxvk), PS5 fork | zlib | `dxgi.dll` |
-| [Mesa](https://mesa3d.org/) RADV, via [PS5_Mesa](https://github.com/mihawk-99/PS5_Mesa) | MIT (per-file notices in the Mesa source) | the Vulkan driver linked into the app |
+| [Mesa](https://mesa3d.org/) RADV, via [PS5_Mesa](https://github.com/mihawk-99/PS5_Mesa); PS5_Mesa commits `53cc83f`, `249fe49`, `f5610fe`, `7bd4aac` and part of `47e9eb6` (Mihawk) carried as `ps5/radv/patches/` | MIT (per-file notices in the Mesa source) | the Vulkan driver linked into the app |
 | [whisper.cpp](https://github.com/ggml-org/whisper.cpp) 1.9.5 | MIT | Voice-to-Text speech recognition, statically linked into the game parent |
 | [ggml](https://github.com/ggml-org/ggml) 0.26.0, with PS5 allocation limits | MIT | whisper.cpp CPU and Vulkan inference backends |
 | [OpenAI Whisper](https://github.com/openai/whisper) speech model weights | MIT | Voice-to-Text model, downloaded at runtime on first use; not included in the release ZIP |
