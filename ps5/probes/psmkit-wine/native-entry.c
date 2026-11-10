@@ -1556,20 +1556,20 @@ static void b1_download_progress(void *opaque, uint64_t total, uint64_t length)
     if (total / (1024u * 1024u) == *progress && total != length) return;
     *progress = total / (1024u * 1024u);
     if (length)
-        snprintf(message, sizeof(message), "Downloading the Battle.net installer: %.1f of %.1f MB",
+        snprintf(message, sizeof(message), "Downloading the " PW_RUNTIME_PRODUCT_NAME " installer: %.1f of %.1f MB",
                  (double)total / (1024 * 1024), (double)length / (1024 * 1024));
     else
-        snprintf(message, sizeof(message), "Downloading the Battle.net installer: %.1f MB",
+        snprintf(message, sizeof(message), "Downloading the " PW_RUNTIME_PRODUCT_NAME " installer: %.1f MB",
                  (double)total / (1024 * 1024));
     b1_message(message);
 }
 
-/* Native I/O stays off the desktop thread. The shared stream follows the Live
- * URL with fresh GETs; retain the direct versioned URL as a second chance. */
+/* Native I/O stays off the desktop thread. The shared stream follows the
+ * profile's URL with fresh GETs; its fallback URL, if any, is a second chance. */
 static int b1_download_installer(void)
 {
     static const char *const urls[] = {PW_RUNTIME_INSTALLER_URL, PW_RUNTIME_INSTALLER_FALLBACK_URL};
-    const char *part = PW_RUNTIME_INSTALLER_CWD "/.Battle.net-Setup.exe.part";
+    const char *part = PW_RUNTIME_INSTALLER_PART;
     struct forever_https http = {-1, -1, -1, -1};
     int result = 0, complete = 0, logged = 0;
     uint64_t total = 0, length = 0, progress = UINT64_MAX;
@@ -1577,7 +1577,7 @@ static int b1_download_installer(void)
     char message[640], directory[] = PW_RUNTIME_INSTALLER_CWD;
     unsigned int i = 0;
 
-    b1_message("Downloading the Battle.net installer...");
+    b1_message("Downloading the " PW_RUNTIME_PRODUCT_NAME " installer...");
     for (char *p = directory + 1; ; p++)
     {
         if (*p && *p != '/') continue;
@@ -1589,9 +1589,9 @@ static int b1_download_installer(void)
     }
     result = forever_https_open(&http, step);
     if (result) goto done;
-    for (i = 0; i < sizeof(urls) / sizeof(urls[0]); i++)
+    for (i = 0; i < sizeof(urls) / sizeof(urls[0]) && urls[i][0]; i++)
     {
-        if (i) b1_message("Retrying the Battle.net installer download from its direct link...");
+        if (i) b1_message("Retrying the " PW_RUNTIME_PRODUCT_NAME " installer download from its direct link...");
         struct forever_download download = {
             .url = urls[i], .part = part, .destination = PW_RUNTIME_INSTALLER_UNIX,
             .cap = 256u * 1024u * 1024u, .mz = 1,
@@ -1614,7 +1614,7 @@ done:
         if (!logged)
             io_log("b1 parent installer download failed: %s result=%#x bytes=%llu length=%llu",
                    *step, result, (unsigned long long)total, (unsigned long long)length);
-        snprintf(message, sizeof(message), "Battle.net installer download failed: %s (%#x).\nClose the title and try again.",
+        snprintf(message, sizeof(message), PW_RUNTIME_PRODUCT_NAME " installer download failed: %s (%#x).\nClose the title and try again.",
                  *step, result);
         b1_message(message);
         return -1;
@@ -4107,8 +4107,7 @@ int main(int argc, char **argv)
     result=wine_public_title_main(parent_argc,args);
 #else
     char *args[]=PW_RUNTIME_PARENT_ARGV;
-    char *installer_args[]={(char *)PW_RUNTIME_LOADER, "C:\\windows\\system32\\start.exe",
-                            "/exec", (char *)PW_RUNTIME_INSTALLER_DOS, NULL};
+    char *installer_args[]=PW_RUNTIME_INSTALLER_ARGV;
     char *wineboot_args[]={(char *)PW_RUNTIME_LOADER, "C:\\windows\\system32\\wineboot.exe", "-i", NULL};
     const char *cwd = forever_prefix_init ? FOREVER_PREFIX : installer ? PW_RUNTIME_INSTALLER_CWD : PW_RUNTIME_CWD;
     if (setenv("WINEPS5_TITLE_PARENT_CWD", cwd, 1)) return 1;
@@ -4135,10 +4134,11 @@ int main(int argc, char **argv)
             io_log("b1 parent installer command=%s cwd=%s", PW_RUNTIME_INSTALLER_DOS, cwd);
         b1_message(NULL);
         io_log("b1 maintenance parent command=%s argc=%d cwd=%s runtime_root=%s headless=%d", args[1],
-               installer ? 4 : PW_RUNTIME_PARENT_ARGC, cwd, PW_RUNTIME_ROOT, PW_RUNTIME_HEADLESS);
+               installer ? PW_RUNTIME_INSTALLER_ARGC : PW_RUNTIME_PARENT_ARGC, cwd, PW_RUNTIME_ROOT, PW_RUNTIME_HEADLESS);
         pw_title_log_begin();
         if (!installer) pw_prefetch_hosts();
-        result=wine_public_title_main(installer ? 4 : PW_RUNTIME_PARENT_ARGC, installer ? installer_args : args);
+        result=wine_public_title_main(installer ? PW_RUNTIME_INSTALLER_ARGC : PW_RUNTIME_PARENT_ARGC,
+                                      installer ? installer_args : args);
     }
 #endif
 #else

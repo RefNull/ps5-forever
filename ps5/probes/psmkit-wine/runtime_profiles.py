@@ -16,6 +16,9 @@ ADDON_WORKER_MAX_BYTES = 2 * 1024 * 1024
 # User data outside the app folder, which a store update replaces. ShadowMountPlus
 # 1.7beta3+ mounts /data into the title's sandbox.
 USER_DATA_ROOT = '/data/forever'
+# Optional product inputs; the defaults are Battle.net's.
+PRODUCT_KEYS = ('product_name', 'launcher_dos', 'installer_url', 'installer_fallback_url',
+                'installer_dos', 'installer_args')
 
 
 def _valid_hdr_mode(setting):
@@ -104,6 +107,28 @@ def _valid_sdr_white_nits(setting):
             80 <= int(setting) <= 480)
 
 
+def _dos_parts(path):
+    """Components of an absolute C:\\ path that maps into the prefix's drive_c."""
+    if (not isinstance(path, str) or not path.isascii() or len(path) > 259 or
+            not path.startswith('C:\\')):
+        return None
+    parts = path[3:].split('\\')
+    if any(not part or part in ('.', '..') or part[-1] in ' .' or
+           any(ord(char) < 32 or char in '<>:"/|?*;' for char in part) for part in parts):
+        return None
+    return parts
+
+
+def _valid_installer_url(url, optional=False):
+    if optional and url == '':
+        return True
+    if not isinstance(url, str) or not 8 < len(url) < 8192 or not url.startswith('https://'):
+        return False
+    authority = url[8:].split('/', 1)[0].split('?', 1)[0].split('#', 1)[0]
+    return (url.isascii() and bool(authority) and '@' not in authority and
+            not any(ord(char) <= 32 or ord(char) == 127 or char in '\\"' for char in url))
+
+
 def installed_paths(loader):
     path = PurePosixPath(loader)
     if not path.is_absolute() or '..' in path.parts or path.parts[-4:] != ('lib', 'wine', 'x86_64-unix', 'wine'):
@@ -147,10 +172,15 @@ def profile(name, overrides=None):
         'dll_overrides': ('winemenubuilder.exe=d;mscoree=d;mshtml=d;winedbg.exe=d;'
                           'msv1_0=d;kerberos=d;tabtip.exe=d'),
         'headless': False, 'gpu': False,
+        # The product: its launcher, whose absence makes the title install it,
+        # and the installer it downloads and runs.
+        'product_name': 'Battle.net',
+        'launcher_dos': r'C:\Program Files (x86)\Battle.net\Battle.net Launcher.exe',
         'installer_url': 'https://downloader.battle.net//download/getInstallerForGame?os=win&gameProgram=BATTLENET_APP&version=Live',
         # Direct versioned file, tried only when the Live redirect download fails.
         'installer_fallback_url': 'https://downloader.battle.net/download/installer/win/1.0.66/Battle.net-Setup.exe',
         'installer_dos': r'C:\Battle.net-Setup.exe',
+        'installer_args': [],
         'payload_programs': [],
         'refused_programs': [],
         'prefetch_hosts': [],
@@ -176,7 +206,8 @@ def profile(name, overrides=None):
             raise ValueError('profile overrides are a B1 JSON object only')
         allowed = {'argv', 'cwd', 'prefix', 'home', 'dll_overrides', 'child_dll_overrides',
                    'debug', 'headless', 'payload_programs', 'refused_programs',
-                   'browser_switches', 'gpu', 'runtime_game', 'environment', 'prefetch_hosts', 'dns_upstreams'}
+                   'browser_switches', 'gpu', 'runtime_game', 'environment', 'prefetch_hosts', 'dns_upstreams',
+                   *PRODUCT_KEYS}
         if overrides.keys() - allowed:
             raise ValueError(f'unsupported B1 profile inputs: {sorted(overrides.keys()-allowed)}')
         for key, value in overrides.items():
@@ -260,6 +291,33 @@ def profile(name, overrides=None):
                         for program, switches in value.items()):
                     raise ValueError('B1 browser_switches maps program file names to lists of --switches')
                 selected[key] = value
+            elif key == 'product_name':
+                # shown in the title's install messages
+                if (not isinstance(value, str) or not 0 < len(value) <= 32 or not value.isascii() or
+                        any(ord(char) < 32 or ord(char) == 127 or char in '"\\%' for char in value)):
+                    raise ValueError('B1 product_name must be 1-32 printable ASCII characters without " \\ %')
+                selected[key] = value
+            elif key == 'launcher_dos':
+                if not _dos_parts(value):
+                    raise ValueError('B1 launcher_dos must be an absolute C:\\ path')
+                selected[key] = value
+            elif key == 'installer_dos':
+                parts = _dos_parts(value)
+                if not parts or len(parts) != 1 or not parts[0].lower().endswith('.exe'):
+                    raise ValueError('B1 installer_dos must be an .exe directly under C:\\')
+                selected[key] = value
+            elif key in ('installer_url', 'installer_fallback_url'):
+                if not _valid_installer_url(value, key == 'installer_fallback_url'):
+                    raise ValueError(f'B1 {key} must be an https:// URL' +
+                                     (' or empty' if key == 'installer_fallback_url' else ''))
+                selected[key] = value
+            elif key == 'installer_args':
+                if (not isinstance(value, list) or len(value) > 8 or any(
+                        not isinstance(arg, str) or not 0 < len(arg) <= 255 or not arg.isascii() or
+                        any(ord(char) < 32 or ord(char) == 127 or char == '"' for char in arg)
+                        for arg in value)):
+                    raise ValueError('B1 installer_args must be up to 8 printable ASCII arguments')
+                selected[key] = value
             elif key in ('headless', 'gpu', 'runtime_game'):
                 if not isinstance(value, bool):
                     raise ValueError(f'B1 {key} must be a boolean')
@@ -297,8 +355,13 @@ def profile(name, overrides=None):
         for version in (1, 2, 3, 4):
             module = f'xinput1_{version}.so'
             selected['module_paths'][module] = root + '/lib/wine/x86_64-unix/' + module
-    selected['launcher_unix'] = selected['prefix'] + '/drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe'
-    selected['installer_unix'] = selected['prefix'] + '/drive_c/Battle.net-Setup.exe'
+    if overrides and 'installer_url' in overrides and 'installer_fallback_url' not in overrides:
+        selected['installer_fallback_url'] = ''  # another product's URL has no fallback
+    installer = _dos_parts(selected['installer_dos'])[0]
+    selected['launcher_unix'] = (selected['prefix'] + '/drive_c/' +
+                                 '/'.join(_dos_parts(selected['launcher_dos'])))
+    selected['installer_unix'] = selected['prefix'] + '/drive_c/' + installer
+    selected['installer_part'] = selected['prefix'] + '/drive_c/.' + installer + '.part'
     selected['installer_cwd'] = selected['prefix'] + '/drive_c'
     return selected
 
@@ -384,6 +447,7 @@ def qualified_b1_folder(folder):
            if supplied.get('gpu') and 'child_dll_overrides' in supplied else {}),
         **({'environment': supplied['environment']} if 'environment' in supplied else {}),
         **({'argv': supplied.get('argv', [])[1:]} if not supplied.get('runtime_game') else {}),
+        **{key: supplied[key] for key in PRODUCT_KEYS if key in supplied},
     })
     game_supplied = material.get('game_profile')
     game_selected = None
@@ -404,6 +468,7 @@ def qualified_b1_folder(folder):
             **({'environment': game_supplied['environment']} if 'environment' in game_supplied else {}),
             **({'argv': game_supplied.get('argv', [])[1:]}
                if not game_supplied.get('runtime_game') else {}),
+            **{key: game_supplied[key] for key in PRODUCT_KEYS if key in game_supplied},
         })
     digest = hashlib.sha256(json.dumps(material, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     if (receipt.get('status') != 'QUALIFIED_STATIC_NOT_EXECUTED' or

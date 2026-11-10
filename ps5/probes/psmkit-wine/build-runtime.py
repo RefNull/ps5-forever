@@ -553,8 +553,13 @@ profile_defines += '#define PW_RUNTIME_CHILD_PATH ' + json.dumps(
 profile_defines += f'#define PW_RUNTIME_HEADLESS {1 if selected["headless"] else 0}\n'
 profile_defines += ''.join(
     f'#define PW_RUNTIME_{key.upper()} {json.dumps(selected[key])}\n'
-    for key in ('installer_url', 'installer_fallback_url', 'installer_dos', 'launcher_unix', 'installer_unix',
-                'installer_cwd'))
+    for key in ('product_name', 'installer_url', 'installer_fallback_url', 'installer_dos', 'launcher_unix',
+                'installer_unix', 'installer_part', 'installer_cwd'))
+installer_argv = [selected['loader'], r'C:\windows\system32\start.exe', '/exec',
+                  selected['installer_dos'], *selected['installer_args']]
+profile_defines += '#define PW_RUNTIME_INSTALLER_ARGV {' + ','.join(
+    '(char *)' + json.dumps(value) for value in installer_argv) + ',NULL}\n'
+profile_defines += f'#define PW_RUNTIME_INSTALLER_ARGC {len(installer_argv)}\n'
 profile_defines += '#define PW_RUNTIME_PAYLOAD_PROGRAMS ' + json.dumps(';'.join(selected['payload_programs'])) + '\n'
 profile_defines += '#define PW_RUNTIME_REFUSED_PROGRAMS ' + json.dumps(';'.join(selected['refused_programs'])) + '\n'
 profile_defines += '#define PW_RUNTIME_PREFETCH_HOSTS ' + json.dumps(';'.join(selected['prefetch_hosts'])) + '\n'

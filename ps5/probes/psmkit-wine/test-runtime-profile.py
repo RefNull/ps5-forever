@@ -10,7 +10,7 @@ import tempfile
 from runtime_profiles import (
     ADDON_WORKER_MAX_BYTES, ADDON_WORKER_RELATIVE, WRITEBROKER_MAX_BYTES,
     WRITEBROKER_RELATIVE, profile, installed_paths, runtime_tree_manifest,
-    b1_guard_paths, qualified_b1_folder, file_identity, builtin_prefix_files,
+    b1_guard_paths, qualified_b1_folder, file_identity, builtin_prefix_files, PRODUCT_KEYS,
 )
 from runtime_imports import (
     candidate_ownership, module_manifest, render_include, load_policy, make_records,
@@ -216,17 +216,68 @@ assert b1['installer_dos'] == r'C:\Battle.net-Setup.exe'
 assert b1['installer_url'] == 'https://downloader.battle.net//download/getInstallerForGame?os=win&gameProgram=BATTLENET_APP&version=Live'
 # A direct versioned download, tried only after the Live redirect fails.
 assert b1['installer_fallback_url'] == 'https://downloader.battle.net/download/installer/win/1.0.66/Battle.net-Setup.exe'
-for key in ('installer_url', 'installer_fallback_url', 'installer_dos', 'launcher_unix', 'installer_unix', 'installer_cwd'):
+assert b1['product_name'] == 'Battle.net' and b1['installer_args'] == []
+assert b1['launcher_dos'] == r'C:\Program Files (x86)\Battle.net\Battle.net Launcher.exe'
+# Paths derived from the prefix are never inputs.
+for key in ('launcher_unix', 'installer_unix', 'installer_part', 'installer_cwd'):
     try:
         profile('b1', {key: b1[key]})
     except ValueError:
         pass
     else:
-        raise AssertionError(f'B1 profile accepted overridable installer field: {key}')
+        raise AssertionError(f'B1 profile accepted derived installer field: {key}')
 relocated = profile('b1', {'prefix': '/app0/wine/prefix'})
 assert relocated['installer_unix'] == '/app0/wine/prefix/drive_c/Battle.net-Setup.exe'
+assert relocated['installer_part'] == '/app0/wine/prefix/drive_c/.Battle.net-Setup.exe.part'
 assert relocated['launcher_unix'] == '/app0/wine/prefix/drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe'
 assert relocated['installer_cwd'] == '/app0/wine/prefix/drive_c'
+# Battle.net's values, restated as inputs, select the same profile.
+assert profile('b1', {key: b1[key] for key in PRODUCT_KEYS}) == b1
+other = profile('b1', {
+    'prefix': '/data/forever/other/prefix', 'product_name': 'Other',
+    'launcher_dos': r'C:\Program Files (x86)\Other\other.exe',
+    'installer_url': 'https://cdn.example.invalid/OtherSetup.exe',
+    'installer_dos': r'C:\OtherSetup.exe', 'installer_args': ['/S']})
+assert other['launcher_unix'] == '/data/forever/other/prefix/drive_c/Program Files (x86)/Other/other.exe'
+assert other['installer_unix'] == '/data/forever/other/prefix/drive_c/OtherSetup.exe'
+assert other['installer_part'] == '/data/forever/other/prefix/drive_c/.OtherSetup.exe.part'
+assert other['installer_cwd'] == '/data/forever/other/prefix/drive_c'
+assert other['installer_fallback_url'] == ''  # Battle.net's fallback never follows another URL
+assert other['installer_args'] == ['/S'] and other['product_name'] == 'Other'
+assert profile('b1', {'installer_url': 'https://a.example.invalid/x.exe',
+                      'installer_fallback_url': 'https://b.example.invalid/x.exe'})[
+    'installer_fallback_url'] == 'https://b.example.invalid/x.exe'
+for key, bad in (
+        ('product_name', ''), ('product_name', 'x' * 33), ('product_name', '100%'),
+        ('product_name', 'a"b'), ('product_name', 'a\\b'), ('product_name', 'caf\u00e9'), ('product_name', 7),
+        ('launcher_dos', 'Program Files\\x.exe'), ('launcher_dos', r'D:\x.exe'), ('launcher_dos', 'C:\\'),
+        ('launcher_dos', r'C:\a\..\b.exe'), ('launcher_dos', r'C:\a\\b.exe'), ('launcher_dos', 'C:\\a/b.exe'),
+        ('launcher_dos', 'C:\\a;b.exe'), ('launcher_dos', 'C:\\a.exe\0'), ('launcher_dos', r'C:\dir.\a.exe'),
+        ('installer_dos', r'C:\Temp\Setup.exe'), ('installer_dos', r'C:\Setup.msi'), ('installer_dos', r'C:\..'),
+        ('installer_url', 'http://cdn.example.invalid/x.exe'), ('installer_url', ''),
+        ('installer_url', 'https://'), ('installer_url', 'https://user@cdn.example.invalid/x.exe'),
+        ('installer_url', 'https://cdn.example.invalid/a b.exe'), ('installer_url', 'https://cdn.example.invalid/a"'),
+        ('installer_url', 'https://cdn.example.invalid/\u00e9'), ('installer_url', 'https://' + 'a' * 8192),
+        ('installer_fallback_url', 'ftp://cdn.example.invalid/x.exe'),
+        ('installer_args', '/S'), ('installer_args', ['']), ('installer_args', ['/S'] * 9),
+        ('installer_args', ['a"b']), ('installer_args', ['a\nb']), ('installer_args', [1])):
+    try:
+        profile('b1', {key: bad})
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f'B1 profile accepted {key}={bad!r}')
+assert profile('b1', {'installer_fallback_url': ''})['installer_fallback_url'] == ''
+# The title's installer path reads the product only from the profile.
+download = native_startup.split('static void b1_download_progress', 1)[1].split('#ifdef PW_PARENT_ROLE', 1)[0]
+assert 'Battle.net' not in download and 'PW_RUNTIME_PRODUCT_NAME' in download
+assert 'const char *part = PW_RUNTIME_INSTALLER_PART;' in download
+assert 'sizeof(urls) / sizeof(urls[0]) && urls[i][0]' in download
+assert 'char *installer_args[]=PW_RUNTIME_INSTALLER_ARGV;' in native_startup
+assert 'installer ? 4 :' not in native_startup
+assert native_startup.count('PW_RUNTIME_INSTALLER_ARGC') == 2
+build_source = Path(__file__).with_name('build-runtime.py').read_text()
+assert "'/exec',\n                  selected['installer_dos'], *selected['installer_args']]" in build_source
 assert profile('b1', {'payload_programs': [r'C:\ProgramData\Battle.net\Agent\Agent.exe']})['payload_programs'] == [
     r'C:\ProgramData\Battle.net\Agent\Agent.exe']
 assert ('"WINEDLLOVERRIDES=' + b1['payload_dll_overrides'] + '"') in (
@@ -476,7 +527,8 @@ with tempfile.TemporaryDirectory(prefix='pw-b1-profile-') as temporary:
     material.update(original_material)
     (folder / 'wine-title/title-root-manifest.json').write_text(json.dumps(manifest, sort_keys=True))
     for selected_profile, accepted in ((profile('b1', {'gpu': True, 'headless': True}), False),
-                                       ({key: value for key, value in b1.items() if key != 'gpu'}, True)):
+                                       ({key: value for key, value in b1.items() if key != 'gpu'}, True),
+                                       (other, True)):
         material['profile'] = selected_profile
         receipt['qualification_key'] = hashlib.sha256(json.dumps(
             material, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
