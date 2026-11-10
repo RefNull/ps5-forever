@@ -993,7 +993,7 @@ static void pool_tests(void)
 int main(void)
 {
     int fd;
-    assert(WB_VERSION == 6);
+    assert(WB_VERSION == 8);
     wine_ps5_title_critical_signals(&ps5_title_block_set);
     assert(mkdtemp(directory));
     snprintf(token_path, sizeof(token_path), "%s/token", directory);

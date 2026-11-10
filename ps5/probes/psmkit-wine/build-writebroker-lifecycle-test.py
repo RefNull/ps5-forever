@@ -5,9 +5,11 @@ Only the console log (ps5/klog.h) is a host stub; the test runs real broker
 processes against a loopback port and a scratch user data folder.
 """
 import argparse
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import shlex
 import subprocess
+import tempfile
 
 MENU_INCLUDE = '#include "../probes/psmkit-wine/writebroker-menu.h"'
 KLOG_STUB = '''#ifndef TEST_PS5_KLOG_H
@@ -26,6 +28,9 @@ def main():
                         help='broker source (default: ps5/writebroker/writebroker.c)')
     args = parser.parse_args()
     here = Path(__file__).resolve().parent
+    spec = spec_from_file_location('browser_switches_test', here / 'build-browser-switches-test.py')
+    switches = module_from_spec(spec)
+    spec.loader.exec_module(switches)
     broker = args.broker or here.parents[1] / 'writebroker/writebroker.c'
     source = broker.read_text()
     if source.count(MENU_INCLUDE) != 1:
@@ -35,12 +40,14 @@ def main():
     (out / 'writebroker-lifecycle-stub/ps5/klog.h').write_text(KLOG_STUB)
     (out / 'writebroker-lifecycle.inc').write_text(source.replace(
         MENU_INCLUDE, '#include "%s"' % (here / 'writebroker-menu.h')))
-    subprocess.run(shlex.split(args.cc) + [
-        '-std=gnu11', '-O2', '-g', '-Wall', '-Wextra', '-Werror', '-pthread',
-        '-I' + str(args.wine / 'include'), '-I' + str(out),
-        '-I' + str(out / 'writebroker-lifecycle-stub'),
-        str(here / 'test-writebroker-lifecycle.c'), '-o', str(args.output),
-    ], check=True)
+    with tempfile.TemporaryDirectory() as work:
+        subprocess.run(shlex.split(args.cc) + [
+            '-std=gnu11', '-O2', '-g', '-Wall', '-Wextra', '-Werror', '-pthread',
+            '-I' + str(switches.patched_include(args.wine, Path(work))),
+            '-I' + str(args.wine / 'include'), '-I' + str(out),
+            '-I' + str(out / 'writebroker-lifecycle-stub'),
+            str(here / 'test-writebroker-lifecycle.c'), '-o', str(args.output),
+        ], check=True)
     print('WRITEBROKER_LIFECYCLE_ISOLATION whole=' + str(broker.name)
           + ' implementation=PRODUCTION_SOURCE')
 

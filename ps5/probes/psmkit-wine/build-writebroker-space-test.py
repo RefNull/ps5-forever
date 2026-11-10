@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Compile complete write-broker, ntdll pool/write and disk-space functions on the host."""
 import argparse
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import re
 import shlex
 import subprocess
+import tempfile
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--wine', type=Path, required=True)
@@ -51,13 +53,15 @@ broker = Path(__file__).resolve().parents[2] / 'writebroker/writebroker.c'
 client = args.wine / 'dlls/ntdll/unix/file.c'
 server_names = ('transfer', 'discard', 'menu_remove_index', 'menu_remove_path_allowed',
                 'menu_open_child_directory', 'menu_open_prefix_root', 'menu_open_remove_parent',
-                'menu_remove_at', 'menu_remove_tree', 'serve_menu_remove', 'open_user_file',
-                'serve_write',
+                'menu_remove_at', 'menu_remove_tree', 'serve_menu_remove', 'open_user_parent',
+                'open_user_file', 'serve_write',
                 'repair_open_data_root', 'repair_open_relative_directory',
                 'repair_apply_mode', 'repair_scan_directory', 'repair_entry_at',
                 'repair_root', 'repair_all',
                 'broker_prepare_startup',
-                'read_whole', 'install_icon', 'serve_statfs', 'token_accepts', 'serve')
+                'read_whole', 'install_icon', 'serve_statfs',
+                'namespace_access', 'namespace_same', 'namespace_create', 'namespace_unlink',
+                'namespace_rename', 'serve_namespace', 'namespace_magic', 'token_accepts', 'serve')
 client_names = ('bounce_acquire', 'bounce_release', 'broker_transfer', 'broker_connect',
                 'broker_get_connection', 'broker_query_fs', 'broker_request', 'broker_pwrite',
                 'get_full_size_info', 'get_full_size_info_ex')
@@ -78,11 +82,17 @@ for filename, path, names in (('writebroker-server.inc', broker, server_names),
         end = source.index('#define TITLE_WRITE_ROUTE_LOG_LIMIT', start)
         functions = source[bounce_start:bounce_end] + source[start:end] + functions
     (args.output.parent / filename).write_text(functions)
-command = shlex.split(args.cc) + [
-    '-std=gnu11', '-O2', '-g', '-Wall', '-Wextra', '-Werror', '-pthread',
-    '-I' + str(args.wine / 'include'), '-I' + str(args.output.parent),
-    str(Path(__file__).with_name('test-writebroker-space.c')), '-o', str(args.output),
-]
-subprocess.run(command, check=True)
+spec = spec_from_file_location('browser_switches_test',
+                               Path(__file__).with_name('build-browser-switches-test.py'))
+switches = module_from_spec(spec)
+spec.loader.exec_module(switches)
+with tempfile.TemporaryDirectory() as work:
+    command = shlex.split(args.cc) + [
+        '-std=gnu11', '-O2', '-g', '-Wall', '-Wextra', '-Werror', '-pthread',
+        '-I' + str(switches.patched_include(args.wine, Path(work))),
+        '-I' + str(args.wine / 'include'), '-I' + str(args.output.parent),
+        str(Path(__file__).with_name('test-writebroker-space.c')), '-o', str(args.output),
+    ]
+    subprocess.run(command, check=True)
 print('WRITEBROKER_SPACE_ISOLATION complete=' + ','.join(server_names + client_names)
       + ' implementation=PRODUCTION_EXTRACTED')

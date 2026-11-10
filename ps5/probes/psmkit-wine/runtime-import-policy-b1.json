@@ -5661,6 +5661,13 @@
       "binding": "strong",
       "module": "wineserver.so",
       "owner": "fself_public_or_platform",
+      "symbol": "getegid",
+      "target": "getegid"
+    },
+    {
+      "binding": "strong",
+      "module": "wineserver.so",
+      "owner": "fself_public_or_platform",
       "symbol": "getenv",
       "target": "getenv"
     },

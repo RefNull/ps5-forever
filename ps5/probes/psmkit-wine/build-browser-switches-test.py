@@ -4,12 +4,14 @@ with this fork's ps5/wine/patches applied, in a host harness."""
 import argparse
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+import re
 import shlex
 import shutil
 import subprocess
 import tempfile
 
 SOURCE = 'dlls/ntdll/unix/process.c'
+PATCHES = Path(__file__).resolve().parents[2] / 'wine/patches'
 
 
 def patched_source(wine, patches, work, source=SOURCE):
@@ -28,6 +30,17 @@ def patched_source(wine, patches, work, source=SOURCE):
                             capture_output=True).returncode != 0:
             raise SystemExit(f'{patch.name} neither applies to nor is applied in {wine / source}')
     return work / source
+
+
+def patched_include(wine, work, patches=PATCHES):
+    """work/include holding each fork header the patches change, patched; put
+    it before wine/include on the include path."""
+    (work / 'include').mkdir(parents=True, exist_ok=True)
+    for patch in sorted(patches.glob('*.patch')):
+        for header in re.findall(r'^diff --git a/(include/\S+) ', patch.read_text(), re.M):
+            if not (work / header).exists():
+                patched_source(wine, patches, work, header)
+    return work / 'include'
 
 
 def main():

@@ -1,0 +1,398 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: RefNull <82533767+RefNull@users.noreply.github.com>
+Date: Tue, 10 Nov 2026 11:29:41 +0100
+Subject: [PATCH] server: Let the write broker create, rename and remove a
+ throttled title's files.
+
+The console stalls a throttled title's file creates (~0.4 s) and its
+renames and removals (~0.95 s), but not a payload's. Once one of the
+in-process server's own namespace calls has taken 200 ms, its creates,
+mkdirs, unlinks and renames go to the write broker (protocol version 8:
+WB_CREATE_MAGIC, WB_MKDIR_MAGIC, WB_UNLINK_MAGIC, WB_RENAME_MAGIC).
+Only the Unix call moves; the server still decides every Windows rule
+first. Unlink and rename name the entry by inode number and file type
+(the title's sandbox sees /data through another mount, so its dev
+differs), so the broker never acts on a different file. Only the
+broker's success and its ENOENT, EEXIST and ENOTEMPTY stand; any other
+answer, ESTALE for an entry it did not find included, an absent or
+older broker, or a lost connection leaves the call to the title as
+before, so a removal is never reported done while the entry is there.
+---
+ include/wine/ps5_writebroker.h |  45 ++++++-
+ server/fd.c                    | 234 +++++++++++++++++++++++++++++++--
+ 2 files changed, 266 insertions(+), 13 deletions(-)
+
+diff --git a/include/wine/ps5_writebroker.h b/include/wine/ps5_writebroker.h
+index 1865c59..c75362a 100644
+--- a/include/wine/ps5_writebroker.h
++++ b/include/wine/ps5_writebroker.h
+@@ -18,9 +18,26 @@
+  * (Version 1 brokers close the connection instead.)
+  * Then any number of writes: struct wb_write, path_length bytes of the
+  * title's path (below WB_USER_ROOT, no NUL), length bytes of data; the
+- * broker answers struct wb_reply with the bytes written or -errno. The
+- * broker only writes existing regular files below WB_USER_ROOT and never
+- * creates, truncates or removes one.
++ * broker answers struct wb_reply with the bytes written or -errno. A write
++ * only reaches an existing regular file below WB_USER_ROOT; it never
++ * creates or truncates one.
++ * Namespace requests (version 7): the console also stalls a throttled
++ * title's creates (~0.4 s) and renames and removals (~0.95 s), but not a
++ * payload's. WB_CREATE_MAGIC, WB_MKDIR_MAGIC, WB_UNLINK_MAGIC or
++ * WB_RENAME_MAGIC in place of a wb_write (offset and reserved 0, length
++ * the rename target's length, else 0) is followed by struct wb_namespace,
++ * the path and the rename target (no NUL). Both names are below
++ * WB_USER_ROOT and not the broker's own .writebroker files; each parent is
++ * opened without following a link and must be writable by the title's
++ * uid/gid; the last component is never followed. A create makes a regular
++ * file and accepts an existing entry unless WB_NS_EXCL; a new file or
++ * directory gets mode & 0777 and the title's uid as owner. Unlink and
++ * rename act only on the entry with the title's inode number and file type
++ * (mode & S_IFMT) on its parent's filesystem (-ESTALE otherwise): the
++ * title's sandbox sees /data through another mount, so its dev is only
++ * logged. A rename replaces only a regular file, and only with
++ * WB_NS_REPLACE. The broker answers struct wb_reply, 0 or -errno; it
++ * answers ENOENT, EEXIST or ENOTEMPTY only for the entry it was named.
+  * The Wine client lazily opens at most 16 pooled connections per process,
+  * each locked across a synchronous request and reply; no client worker is
+  * added. The broker uses one worker and a 1 MiB buffer per live connection
+@@ -50,8 +67,9 @@
+ #define WB_PORT        9141
+ #define WB_MAGIC       0x31524257u   /* "WBR1" */
+ /* 2: WB_USER_ROOT, versioned hello. 3: user data only, token in WB_USER_ROOT.
+- * 4: WB_ICON_MAGIC. 5: WB_STATFS_MAGIC. 6: startup permission repair. */
+-#define WB_VERSION     6
++ * 4: WB_ICON_MAGIC. 5: WB_STATFS_MAGIC. 6: startup permission repair.
++ * 7: namespace requests. 8: namespace identity by inode number and type. */
++#define WB_VERSION     8
+ #define WB_TOKEN_BYTES 16
+ #define WB_MAX_PATH    1024
+ #define WB_MAX_WRITE   (16u << 20)
+@@ -62,6 +80,12 @@
+ #define WB_QUIT_MAGIC  0x54495551u   /* "QUIT" in place of a wb_write: the broker exits */
+ #define WB_ICON_MAGIC  0x4e4f4349u   /* "ICON" in place of a wb_write */
+ #define WB_STATFS_MAGIC 0x53465453u  /* "STFS" in place of a wb_write */
++#define WB_CREATE_MAGIC 0x41455243u  /* "CREA" in place of a wb_write */
++#define WB_MKDIR_MAGIC  0x52494b4du  /* "MKIR" */
++#define WB_UNLINK_MAGIC 0x4b4e4c55u  /* "ULNK" */
++#define WB_RENAME_MAGIC 0x4d4e4552u  /* "RENM" */
++#define WB_NS_EXCL     0x1           /* create: an existing entry is -EEXIST */
++#define WB_NS_REPLACE  0x2           /* rename: a regular-file target is replaced */
+ #define WB_ICON_FILE   WB_USER_ROOT "icon0.png"
+ #define WB_TITLE_ID    "PPSA99030"
+ 
+@@ -103,6 +127,16 @@ struct wb_reply
+     int32_t  result;
+ };
+ 
++struct wb_namespace
++{
++    uint32_t flags;                /* WB_NS_* */
++    uint32_t mode;                 /* create and mkdir; unlink and rename: the entry's type */
++    uint32_t uid;                  /* the title's, for access and ownership */
++    uint32_t gid;
++    uint64_t dev;                  /* unlink and rename: the entry acted on (dev logged only) */
++    uint64_t ino;
++};
++
+ struct wb_statfs_reply
+ {
+     uint32_t magic;
+@@ -117,6 +151,7 @@ struct wb_statfs_reply
+ _Static_assert( sizeof(struct wb_hello) == 24, "wb_hello wire size" );
+ _Static_assert( sizeof(struct wb_write) == 24, "wb_write wire size" );
+ _Static_assert( sizeof(struct wb_reply) == 8, "wb_reply wire size" );
++_Static_assert( sizeof(struct wb_namespace) == 32, "wb_namespace wire size" );
+ _Static_assert( sizeof(struct wb_statfs_reply) == 40, "wb_statfs_reply wire size" );
+ 
+ #endif /* __WINE_PS5_WRITEBROKER_H */
+diff --git a/server/fd.c b/server/fd.c
+index 2582a3d..deb0d1d 100644
+--- a/server/fd.c
++++ b/server/fd.c
+@@ -34,6 +34,11 @@
+ #include <stdint.h>
+ #include <poll.h>
+ #ifdef __PROSPERO__
++#include <netinet/in.h>
++#include <netinet/tcp.h>
++#include <sys/socket.h>
++#include <time.h>
++#include "wine/ps5_writebroker.h"
+ extern char *ps5_realpath( const char *, char * );
+ #endif
+ #ifdef HAVE_LINUX_MAJOR_H
+@@ -1198,6 +1203,222 @@ static void device_destroy( struct object *obj )
+     list_remove( &device->entry );  /* remove it from the hash table */
+ }
+ 
++/****************************************************************/
++/* namespace calls */
++
++#ifdef __PROSPERO__
++/* WINE_PS5_NAMESPACE_BROKER_BEGIN */
++/* The console stalls a throttled title's creates (~0.4 s) and its renames
++ * and removals (~0.95 s), but not a payload's. Once one of the title's own
++ * namespace calls has been that slow, the in-process server asks the write
++ * broker payload (wine/ps5_writebroker.h) to make them instead. Only the
++ * Unix call moves: every Windows rule is decided by the caller first. Only
++ * the broker's success and its ENOENT, EEXIST and ENOTEMPTY (which it gives
++ * only for the entry it was named) stand. Any other answer leaves the call
++ * to the title as if there were no broker, ESTALE included: the broker did
++ * not find the entry the title named, which says nothing about whether it
++ * is there, so a removal is never taken as done. So does an absent or older
++ * broker or a lost connection. Server requests are serialized, so one
++ * connection serves them. */
++#define NS_BROKER_SLOW_US  200000ull
++#define NS_BROKER_RETRY_US 30000000ull
++#define NS_BROKER_LOCAL    1
++
++static int ns_broker_fd = -1;
++static int ns_broker_throttled;
++static unsigned long long ns_broker_retry_at;
++static unsigned int ns_broker_refusals;
++
++static unsigned long long ns_broker_now_us(void)
++{
++    struct timespec now;
++
++    clock_gettime( CLOCK_MONOTONIC, &now );
++    return (unsigned long long)now.tv_sec * 1000000 + now.tv_nsec / 1000;
++}
++
++/* a local namespace call started at started has returned */
++static void ns_broker_note_local( const char *op, unsigned long long started )
++{
++    unsigned long long took = ns_broker_now_us() - started;
++    int saved_errno = errno;
++
++    if (!inprocess_server || ns_broker_throttled || took < NS_BROKER_SLOW_US) return;
++    ns_broker_throttled = 1;
++    inprocess_trace( "namespace route=broker reason=local-slow op=%s ms=%llu\n", op, took / 1000 );
++    errno = saved_errno;
++}
++
++static int ns_broker_transfer( int fd, void *buffer, size_t size, int sending )
++{
++    char *bytes = buffer;
++
++    while (size)
++    {
++        ssize_t count = sending ? send( fd, bytes, size, MSG_NOSIGNAL ) : recv( fd, bytes, size, 0 );
++        if (count < 0 && errno == EINTR) continue;
++        if (count <= 0) return -1;
++        bytes += count;
++        size -= count;
++    }
++    return 0;
++}
++
++static int ns_broker_connect(void)
++{
++    struct sockaddr_in address = { .sin_family = AF_INET, .sin_port = htons( WB_PORT ),
++                                   .sin_addr.s_addr = htonl( INADDR_LOOPBACK ) };
++    struct wb_hello hello = { .magic = WB_MAGIC, .version = WB_VERSION };
++    struct wb_reply reply;
++    struct timeval timeout = { .tv_sec = 10 };
++    int fd, one = 1;
++
++    /* the broker writes a new token each time it starts */
++    if ((fd = open( WB_TOKEN_FILE, O_RDONLY | O_CLOEXEC )) == -1) return -1;
++    if (read( fd, hello.token, sizeof(hello.token) ) != (ssize_t)sizeof(hello.token))
++    {
++        close( fd );
++        return -1;
++    }
++    close( fd );
++    if ((fd = socket( AF_INET, SOCK_STREAM, 0 )) == -1) return -1;
++    fcntl( fd, F_SETFD, FD_CLOEXEC );
++    setsockopt( fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout) );
++    setsockopt( fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout) );
++    setsockopt( fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one) );
++    if (connect( fd, (struct sockaddr *)&address, sizeof(address) ) ||
++        ns_broker_transfer( fd, &hello, sizeof(hello), 1 ) ||
++        ns_broker_transfer( fd, &reply, sizeof(reply), 0 ) ||
++        reply.magic != WB_MAGIC || reply.result)
++    {
++        close( fd );
++        return -1;
++    }
++    return fd;
++}
++
++/* 0 when the broker made the call, -1 with errno for a broker answer that
++ * stands, or NS_BROKER_LOCAL when the caller makes the call itself */
++static int ns_broker_request( unsigned int magic, const char *path, const char *target,
++                              unsigned int flags, mode_t mode, const struct stat *entry )
++{
++    struct wb_write request = { .magic = magic };
++    struct wb_namespace ns = { .flags = flags, .mode = mode & 0777, .uid = geteuid(), .gid = getegid() };
++    struct wb_reply reply;
++    size_t path_length, target_length = target ? strlen( target ) : 0;
++    unsigned long long now;
++
++    if (!inprocess_server || !ns_broker_throttled) return NS_BROKER_LOCAL;
++    path_length = strlen( path );
++    if (path_length > WB_MAX_PATH || !wb_path_root( path )) return NS_BROKER_LOCAL;
++    if (target && (target_length > WB_MAX_PATH || !wb_path_root( target ))) return NS_BROKER_LOCAL;
++    if (ns_broker_fd == -1)
++    {
++        now = ns_broker_now_us();
++        if (now < ns_broker_retry_at) return NS_BROKER_LOCAL;
++        if ((ns_broker_fd = ns_broker_connect()) == -1)
++        {
++            ns_broker_retry_at = now + NS_BROKER_RETRY_US;
++            inprocess_trace( "namespace broker unavailable errno=%d\n", errno );
++            return NS_BROKER_LOCAL;
++        }
++        inprocess_trace( "namespace broker connected\n" );
++    }
++    if (entry)
++    {
++        ns.mode = entry->st_mode & S_IFMT;
++        ns.dev = entry->st_dev;
++        ns.ino = entry->st_ino;
++    }
++    request.path_length = path_length;
++    request.length = target_length;
++    if (ns_broker_transfer( ns_broker_fd, &request, sizeof(request), 1 ) ||
++        ns_broker_transfer( ns_broker_fd, &ns, sizeof(ns), 1 ) ||
++        ns_broker_transfer( ns_broker_fd, (void *)path, path_length, 1 ) ||
++        (target_length && ns_broker_transfer( ns_broker_fd, (void *)target, target_length, 1 )) ||
++        ns_broker_transfer( ns_broker_fd, &reply, sizeof(reply), 0 ) || reply.magic != WB_MAGIC)
++    {
++        /* the connection is in an unknown state: drop it */
++        close( ns_broker_fd );
++        ns_broker_fd = -1;
++        return NS_BROKER_LOCAL;
++    }
++    switch (reply.result)
++    {
++    case 0:
++        return 0;
++    case -ENOENT:
++    case -EEXIST:
++    case -ENOTEMPTY:
++        errno = -reply.result;
++        return -1;
++    }
++    if (ns_broker_refusals++ < 32)
++        inprocess_trace( "namespace broker refused %d magic=%#x; local\n", reply.result, magic );
++    return NS_BROKER_LOCAL;
++}
++
++/* open() of a name, which the broker creates when O_CREAT asks for it */
++static int ns_open( const char *name, int flags, mode_t mode )
++{
++    unsigned long long started = ns_broker_now_us();
++    int ret = (flags & O_CREAT) ? ns_broker_request( WB_CREATE_MAGIC, name, NULL,
++                                                     (flags & O_EXCL) ? WB_NS_EXCL : 0, mode, NULL )
++                                : NS_BROKER_LOCAL;
++
++    if (ret == NS_BROKER_LOCAL)
++    {
++        ret = open( name, flags, mode );
++        if (flags & O_CREAT) ns_broker_note_local( "create", started );
++    }
++    else if (!ret && (ret = open( name, flags & ~(O_CREAT | O_EXCL), mode )) == -1 && errno == ENOENT)
++        ret = open( name, flags & ~O_EXCL, mode );  /* removed again since */
++    return ret;
++}
++
++static int ns_mkdir( const char *name, mode_t mode )
++{
++    unsigned long long started = ns_broker_now_us();
++    int ret = ns_broker_request( WB_MKDIR_MAGIC, name, NULL, 0, mode, NULL );
++
++    if (ret != NS_BROKER_LOCAL) return ret;
++    ret = mkdir( name, mode );
++    ns_broker_note_local( "mkdir", started );
++    return ret;
++}
++
++/* unlink() or rmdir() of name, if it is still the entry st describes */
++static int ns_unlink( const char *name, const struct stat *st )
++{
++    unsigned long long started = ns_broker_now_us();
++    int ret = ns_broker_request( WB_UNLINK_MAGIC, name, NULL, 0, 0, st );
++
++    if (ret != NS_BROKER_LOCAL) return ret;
++    ret = S_ISDIR( st->st_mode ) ? rmdir( name ) : unlink( name );
++    ns_broker_note_local( "unlink", started );
++    return ret;
++}
++
++/* rename() of the file open as unix_fd; replace allows a regular-file target */
++static int ns_rename( const char *from, const char *to, int replace, int unix_fd )
++{
++    unsigned long long started = ns_broker_now_us();
++    struct stat st;
++    int ret = NS_BROKER_LOCAL;
++
++    if (ns_broker_throttled && !fstat( unix_fd, &st ))
++        ret = ns_broker_request( WB_RENAME_MAGIC, from, to, replace ? WB_NS_REPLACE : 0, 0, &st );
++    if (ret != NS_BROKER_LOCAL) return ret;
++    ret = rename( from, to );
++    ns_broker_note_local( "rename", started );
++    return ret;
++}
++/* WINE_PS5_NAMESPACE_BROKER_END */
++#else
++#define ns_unlink( name, st ) (S_ISDIR( (st)->st_mode ) ? rmdir( name ) : unlink( name ))
++#define ns_rename( from, to, replace, unix_fd ) rename( from, to )
++#endif
++
+ /****************************************************************/
+ /* inode functions */
+ 
+@@ -1210,10 +1431,7 @@ static void unlink_closed_fd( struct inode *inode, struct closed_fd *fd )
+     unpark_inode( inode );
+ #endif
+     if (!stat( fd->unix_name, &st ) && st.st_dev == inode->device->dev && st.st_ino == inode->ino)
+-    {
+-        if (S_ISDIR(st.st_mode)) rmdir( fd->unix_name );
+-        else unlink( fd->unix_name );
+-    }
++        ns_unlink( fd->unix_name, &st );
+ #ifdef __PROSPERO__
+     census_phase_note( CENSUS_UNLINK, started, fd->unix_name );
+ #endif
+@@ -2713,7 +2931,7 @@ static void ps5_dump_open_files(void)
+ static int census_open( const char *name, int flags, mode_t mode )
+ {
+     unsigned long long started = census_phase_start();
+-    int ret = open( name, flags, mode );
++    int ret = ns_open( name, flags, mode );
+ 
+     census_phase_note( (flags & O_CREAT) ? CENSUS_OPEN_CREATE : CENSUS_OPEN, started, name );
+     return ret;
+@@ -2722,7 +2940,7 @@ static int census_open( const char *name, int flags, mode_t mode )
+ static int census_mkdir( const char *name, mode_t mode )
+ {
+     unsigned long long started = census_phase_start();
+-    int ret = mkdir( name, mode );
++    int ret = ns_mkdir( name, mode );
+ 
+     census_phase_note( CENSUS_MKDIR, started, name );
+     return ret;
+@@ -3860,7 +4078,7 @@ static void set_fd_name( struct fd *fd, struct fd *root, const char *nameptr, da
+         /* rename() cannot replace files with directories */
+         if (create_link || S_ISDIR( st2.st_mode ))
+         {
+-            if (unlink( name ))
++            if (ns_unlink( name, &st ))
+             {
+                 file_set_error();
+                 goto failed;
+@@ -3876,7 +4094,7 @@ static void set_fd_name( struct fd *fd, struct fd *root, const char *nameptr, da
+         return;
+     }
+ 
+-    if (rename( fd->unix_name, name ))
++    if (ns_rename( fd->unix_name, name, replace, fd->unix_fd ))
+     {
+         file_set_error();
+         goto failed;
+-- 
+2.54.0 (Apple Git-157)
+

@@ -1,5 +1,6 @@
-/* writebroker: performs a PS5 title's file writes from a payload process,
- * which the console's SSD write throttling does not limit (see ps5-wine
+/* writebroker: performs a PS5 title's file writes, and once it is throttled
+ * its creates, renames and removals, from a payload process, which the
+ * console's throttling does not limit (see ps5-wine
  * include/wine/ps5_writebroker.h for why and for the protocol).
  *
  * The title sends it through the ELF loader at start when no broker of its
@@ -663,21 +664,33 @@ static int broker_prepare_startup(void)
     return WB_STARTUP_WRITE_TOKEN();
 }
 
+/* The directory holding a name below the user data root, and in leaf the
+ * name's last component; or -errno. The title sends wineserver's canonical
+ * (realpath) names, which hold no link, so no component is followed if it is
+ * one: a link planted below the root cannot redirect a request outside it.
+ * The broker's own files (token, lock) are not the title's. */
+static int open_user_parent(const char *path, char leaf[WB_MAX_PATH + 1])
+{
+    static const char own[] = ".writebroker";
+    size_t length = wb_path_root(path);
+    int root;
+
+    if (!length || path[length - 1] != '/') return -EACCES;
+    if (!strncmp(path + length, own, sizeof(own) - 1)) return -EACCES;
+    if ((root = menu_open_prefix_root(WB_WRITE_ROOT)) < 0) return root;
+    return menu_open_remove_parent(root, path + length - 1, leaf);
+}
+
 /* An existing regular file below the user data root opened for writing, or
- * -errno. The title sends wineserver's canonical (realpath) name, which holds
- * no link, so no component is followed if it is one: a link planted below the
- * root cannot redirect a write outside it. O_NONBLOCK keeps a FIFO from
- * stalling the serving thread; only a regular file is accepted. */
+ * -errno. O_NONBLOCK keeps a FIFO from stalling the serving thread; only a
+ * regular file is accepted. */
 static int open_user_file(const char *path)
 {
     char leaf[WB_MAX_PATH + 1];
-    size_t length = wb_path_root(path);
     struct stat st;
-    int root, parent, fd;
+    int parent, fd;
 
-    if (!length || path[length - 1] != '/') return -EACCES;
-    if ((root = menu_open_prefix_root(WB_WRITE_ROOT)) < 0) return root;
-    if ((parent = menu_open_remove_parent(root, path + length - 1, leaf)) < 0) return parent;
+    if ((parent = open_user_parent(path, leaf)) < 0) return parent;
     fd = openat(parent, leaf, O_WRONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) fd = -errno;
     close(parent);
@@ -759,6 +772,171 @@ static int serve_statfs(int client, const struct wb_write *request)
         reply.bavail = info.f_bavail > 0 ? (uint64_t)info.f_bavail : 0;
     }
     return transfer(client, &reply, sizeof(reply), 1);
+}
+
+/* Namespace requests act for the title, which the console throttles, and
+ * never do what it could not: the parent must let the title's uid/gid add
+ * and remove entries (by its mode bits; in a sticky directory only the
+ * owner of the entry or directory removes it). entry is the entry removed
+ * or replaced, if any. */
+static int namespace_access(int parent, const struct stat *entry, const struct wb_namespace *ns)
+{
+    struct stat st;
+    mode_t need;
+
+    if (fstat(parent, &st)) return -errno;
+    if (!ns->uid) return 0;
+    need = st.st_uid == ns->uid ? S_IWUSR | S_IXUSR
+         : st.st_gid == ns->gid ? S_IWGRP | S_IXGRP : S_IWOTH | S_IXOTH;
+    if ((st.st_mode & need) != need) return -EACCES;
+    if (entry && (st.st_mode & S_ISVTX) && st.st_uid != ns->uid && entry->st_uid != ns->uid)
+        return -EACCES;
+    return 0;
+}
+
+/* Whether st, the entry named path in parent, is the one the title named.
+ * The title's sandbox sees /data through another mount than this payload, so
+ * its st_dev differs. Assumption, not yet confirmed on the console: that
+ * mount passes inode numbers through, as FreeBSD nullfs does (it reports
+ * only its own fsid). So the entry is matched by inode number and file type,
+ * and must be on its parent's filesystem in this payload's own view, where
+ * inode numbers are unique; the title's dev is only logged. Confinement does
+ * not rest on this: it is the user data root, the O_NOFOLLOW component opens
+ * and namespace_access. A mismatch is -ESTALE, which the title answers by
+ * making the call itself: slow, never wrong. */
+static int namespace_same(int parent, const struct stat *st, const struct wb_namespace *ns,
+                          const char *path)
+{
+    static unsigned logged;
+    struct stat directory = {0};
+
+    if (!fstat(parent, &directory) && st->st_dev == directory.st_dev &&
+        (uint64_t)st->st_ino == ns->ino && (st->st_mode & S_IFMT) == (ns->mode & S_IFMT))
+        return 1;
+    if (__atomic_fetch_add(&logged, 1, __ATOMIC_RELAXED) < 64)
+        say("namespace identity title dev=%llx ino=%llx type=%o; broker dev=%llx ino=%llx "
+            "type=%o parent dev=%llx: %s",
+            (unsigned long long)ns->dev, (unsigned long long)ns->ino, (unsigned)(ns->mode & S_IFMT),
+            (unsigned long long)st->st_dev, (unsigned long long)st->st_ino,
+            (unsigned)(st->st_mode & S_IFMT), (unsigned long long)directory.st_dev, path);
+    return 0;
+}
+
+/* A new regular file or directory leaf in parent, as the title would have
+ * made it: mode & 0777 whatever this process's umask, owned by the title's
+ * uid (the group comes from the parent, as for the title's own). One the
+ * title could not own is removed again. */
+static int namespace_create(int parent, const char *leaf, const struct wb_namespace *ns, int directory)
+{
+    mode_t mode = ns->mode & 0777;
+    struct stat made, named;
+    int fd, result = 0;
+
+    if (directory)
+    {
+        if (mkdirat(parent, leaf, mode)) return -errno;
+        fd = openat(parent, leaf, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+    }
+    else
+    {
+        fd = openat(parent, leaf, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, mode);
+        /* the title opens what is there, as its own open would have */
+        if (fd < 0 && errno == EEXIST && !(ns->flags & WB_NS_EXCL)) return 0;
+    }
+    if (fd < 0) return -errno;
+    if (fchown(fd, (uid_t)ns->uid, (gid_t)-1) || fchmod(fd, mode))
+    {
+        result = -errno;
+        if (!fstat(fd, &made) && !fstatat(parent, leaf, &named, AT_SYMLINK_NOFOLLOW) &&
+            made.st_dev == named.st_dev && made.st_ino == named.st_ino)
+            unlinkat(parent, leaf, directory ? AT_REMOVEDIR : 0);
+    }
+    close(fd);
+    return result;
+}
+
+/* ENOENT, EEXIST and ENOTEMPTY come only from the entry named: a missing
+ * one, or once its identity matched; the title takes them as the answer. */
+static int namespace_unlink(int parent, const char *leaf, const struct wb_namespace *ns,
+                            const char *path)
+{
+    struct stat st;
+    int result;
+
+    if (fstatat(parent, leaf, &st, AT_SYMLINK_NOFOLLOW)) return -errno;
+    if (!namespace_same(parent, &st, ns, path)) return -ESTALE;
+    if ((result = namespace_access(parent, &st, ns))) return result;
+    return unlinkat(parent, leaf, S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0) ? -errno : 0;
+}
+
+static int namespace_rename(int from, const char *from_leaf, int to, const char *to_leaf,
+                            const struct wb_namespace *ns, const char *path)
+{
+    struct stat st, target;
+    int result;
+
+    if (fstatat(from, from_leaf, &st, AT_SYMLINK_NOFOLLOW)) return -errno;
+    if (!namespace_same(from, &st, ns, path)) return -ESTALE;
+    if ((result = namespace_access(from, &st, ns))) return result;
+    if (!fstatat(to, to_leaf, &target, AT_SYMLINK_NOFOLLOW))
+    {
+        if (!(ns->flags & WB_NS_REPLACE)) return -EEXIST;
+        if (!S_ISREG(target.st_mode)) return -EACCES;
+        if ((result = namespace_access(to, &target, ns))) return result;
+    }
+    else if (errno != ENOENT) return -errno;
+    else if ((result = namespace_access(to, NULL, ns))) return result;
+    return renameat(from, from_leaf, to, to_leaf) ? -errno : 0;
+}
+
+/* WB_CREATE_MAGIC, WB_MKDIR_MAGIC, WB_UNLINK_MAGIC, WB_RENAME_MAGIC */
+static int serve_namespace(int client, const struct wb_write *request)
+{
+    static unsigned refusals;
+    char path[WB_MAX_PATH + 1], target[WB_MAX_PATH + 1];
+    char leaf[WB_MAX_PATH + 1], target_leaf[WB_MAX_PATH + 1];
+    struct wb_reply reply = {.magic = WB_MAGIC};
+    struct wb_namespace ns;
+    int renaming = request->magic == WB_RENAME_MAGIC, parent = -1, target_parent = -1;
+    uint32_t target_length = renaming ? request->length : 0;
+
+    if (!request->path_length || request->path_length > WB_MAX_PATH || request->offset ||
+        request->reserved || request->length != target_length ||
+        (renaming && (!target_length || target_length > WB_MAX_PATH)))
+        return -1;
+    if (transfer(client, &ns, sizeof(ns), 0) || transfer(client, path, request->path_length, 0) ||
+        transfer(client, target, target_length, 0))
+        return -1;
+    path[request->path_length] = target[target_length] = 0;
+    if (memchr(path, 0, request->path_length) || memchr(target, 0, target_length)) return -1;
+
+    if ((ns.flags & ~(uint32_t)(WB_NS_EXCL | WB_NS_REPLACE)) ||
+        ((request->magic == WB_UNLINK_MAGIC || renaming) && !ns.ino))
+        reply.result = -EINVAL;
+    else if ((parent = open_user_parent(path, leaf)) < 0)
+        reply.result = parent;
+    else if (renaming && (target_parent = open_user_parent(target, target_leaf)) < 0)
+        reply.result = target_parent;
+    else if (request->magic == WB_UNLINK_MAGIC)
+        reply.result = namespace_unlink(parent, leaf, &ns, path);
+    else if (renaming)
+        reply.result = namespace_rename(parent, leaf, target_parent, target_leaf, &ns, path);
+    else if (!(reply.result = namespace_access(parent, NULL, &ns)))
+        reply.result = namespace_create(parent, leaf, &ns, request->magic == WB_MKDIR_MAGIC);
+    if (parent >= 0) close(parent);
+    if (target_parent >= 0) close(target_parent);
+    /* missing, existing and non-empty entries are the title's everyday answers */
+    if (reply.result && reply.result != -ENOENT && reply.result != -EEXIST &&
+        reply.result != -ENOTEMPTY && __atomic_fetch_add(&refusals, 1, __ATOMIC_RELAXED) < 64)
+        say("namespace refused %d %08x: %s%s%s", reply.result, request->magic, path,
+            renaming ? " -> " : "", target);
+    return transfer(client, &reply, sizeof(reply), 1);
+}
+
+static int namespace_magic(uint32_t magic)
+{
+    return magic == WB_CREATE_MAGIC || magic == WB_MKDIR_MAGIC ||
+           magic == WB_UNLINK_MAGIC || magic == WB_RENAME_MAGIC;
 }
 
 /* A regular file of at most limit bytes into buffer: its size, or -errno */
@@ -900,6 +1078,11 @@ static void *serve(void *arg)
         if (!reply.result && request.magic == WB_STATFS_MAGIC)
         {
             if (serve_statfs(client, &request)) break;
+            continue;
+        }
+        if (!reply.result && namespace_magic(request.magic))
+        {
+            if (serve_namespace(client, &request)) break;
             continue;
         }
         if (reply.result || request.magic != WB_MAGIC || serve_write(client, &request, buffer)) break;

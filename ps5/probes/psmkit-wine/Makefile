@@ -12,6 +12,8 @@ LLVM_MINGW ?= $(HOME)/llvm-mingw
 MINGW_CC ?= $(LLVM_MINGW)/bin/x86_64-w64-mingw32-clang
 WINE_BUILD ?= ../../build/wine-ps5-build
 WINEBUILD ?= ../../build/wine-ps5-tools/tools/winebuild/winebuild
+# Builders that read Wine through this repo's patch series (patched_source/patched_include).
+WINE_PATCHED := build-browser-switches-test.py $(wildcard ../../wine/patches/*.patch)
 WRITEBROKER_ELF := ../../build/writebroker/writebroker.elf
 WRITEBROKER_DIR := ../../writebroker
 ADDON_WORKER_ELF := ../../build/addon-worker/addon-worker.elf
@@ -114,7 +116,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 		$(HOST_OUT)/test-battlenet-restart $(HOST_OUT)/test-audio-mixer \
 		$(HOST_OUT)/test-audio-selection $(HOST_OUT)/test-fd-parking $(HOST_OUT)/test-browser-switches \
 		$(HOST_OUT)/test-writebroker-autostart $(HOST_OUT)/test-writebroker-space $(HOST_OUT)/test-writebroker-open \
-		$(HOST_OUT)/test-writebroker-lifecycle $(HOST_OUT)/test-title-port-owner \
+		$(HOST_OUT)/test-writebroker-lifecycle $(HOST_OUT)/test-writebroker-namespace $(HOST_OUT)/test-title-port-owner \
 		$(HOST_OUT)/test-title-log \
 		$(HOST_OUT)/test-forever-setup $(HOST_OUT)/test-forever-menu $(HOST_OUT)/test-forever-exit \
 		$(HOST_OUT)/test-addonforge-client $(HOST_OUT)/test-addonforge-worker $(HOST_OUT)/test-addonforge-security $(HOST_OUT)/test-addon-trash-native \
@@ -159,6 +161,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 	$(HOST_OUT)/test-writebroker-space
 	$(HOST_OUT)/test-writebroker-open
 	$(HOST_OUT)/test-writebroker-lifecycle
+	$(HOST_OUT)/test-writebroker-namespace
 	$(HOST_OUT)/test-title-port-owner
 	$(HOST_OUT)/test-title-log
 	$(HOST_OUT)/test-forever-setup
@@ -194,7 +197,7 @@ test-browser-switches: $(HOST_OUT)/test-browser-switches
 
 # process.c is read at the pin; the fork's patches are applied to a copy.
 $(HOST_OUT)/test-browser-switches: test-browser-switches.c build-browser-switches-test.py \
-		build-desktop-surface-test.py $(WINE_SRC)/dlls/ntdll/unix/process.c $(wildcard ../../wine/patches/*.patch)
+		build-desktop-surface-test.py $(WINE_SRC)/dlls/ntdll/unix/process.c $(WINE_PATCHED)
 	python3 build-browser-switches-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
 
 $(HOST_OUT)/test-file-security: test-file-security.c build-file-security-test.py \
@@ -295,7 +298,7 @@ $(HOST_OUT)/test-writebroker-autostart: test-writebroker-autostart.c writebroker
 
 $(HOST_OUT)/test-writebroker-space: test-writebroker-space.c build-writebroker-space-test.py \
 		writebroker-menu.h $(WRITEBROKER_DIR)/writebroker.c $(WINE_SRC)/dlls/ntdll/unix/file.c \
-		$(WINE_SRC)/include/wine/ps5_writebroker.h
+		$(WINE_SRC)/include/wine/ps5_writebroker.h $(WINE_PATCHED)
 	python3 build-writebroker-space-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
 
 .PHONY: test-writebroker-open
@@ -304,7 +307,7 @@ test-writebroker-open: $(HOST_OUT)/test-writebroker-open
 
 $(HOST_OUT)/test-writebroker-open: test-writebroker-open.c build-writebroker-open-test.py \
 		build-desktop-surface-test.py $(WRITEBROKER_DIR)/writebroker.c \
-		$(WINE_SRC)/include/wine/ps5_writebroker.h
+		$(WINE_SRC)/include/wine/ps5_writebroker.h $(WINE_PATCHED)
 	python3 build-writebroker-open-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
 
 .PHONY: test-writebroker-lifecycle
@@ -312,8 +315,18 @@ test-writebroker-lifecycle: $(HOST_OUT)/test-writebroker-lifecycle
 	$(HOST_OUT)/test-writebroker-lifecycle
 
 $(HOST_OUT)/test-writebroker-lifecycle: test-writebroker-lifecycle.c build-writebroker-lifecycle-test.py \
-		writebroker-menu.h $(WRITEBROKER_DIR)/writebroker.c $(WINE_SRC)/include/wine/ps5_writebroker.h
+		writebroker-menu.h $(WRITEBROKER_DIR)/writebroker.c $(WINE_SRC)/include/wine/ps5_writebroker.h \
+		$(WINE_PATCHED)
 	python3 build-writebroker-lifecycle-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
+
+.PHONY: test-writebroker-namespace
+test-writebroker-namespace: $(HOST_OUT)/test-writebroker-namespace
+	$(HOST_OUT)/test-writebroker-namespace
+
+$(HOST_OUT)/test-writebroker-namespace: test-writebroker-namespace.c build-writebroker-namespace-test.py \
+		build-writebroker-lifecycle-test.py writebroker-menu.h $(WRITEBROKER_DIR)/writebroker.c \
+		$(WINE_SRC)/server/fd.c $(WINE_SRC)/include/wine/ps5_writebroker.h $(WINE_PATCHED)
+	python3 build-writebroker-namespace-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
 
 .PHONY: test-title-port-owner
 test-title-port-owner: $(HOST_OUT)/test-title-port-owner
@@ -321,7 +334,7 @@ test-title-port-owner: $(HOST_OUT)/test-title-port-owner
 
 $(HOST_OUT)/test-title-port-owner: test-title-port-owner.c build-title-port-owner-test.py \
 		build-desktop-surface-test.py native-entry.c writebroker-autostart.h writebroker-menu.h \
-		../../addon-worker/protocol.h $(WINE_SRC)/include/wine/ps5_writebroker.h
+		../../addon-worker/protocol.h $(WINE_SRC)/include/wine/ps5_writebroker.h $(WINE_PATCHED)
 	python3 build-title-port-owner-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
 
 $(HOST_OUT)/test-wow-channels: test-wow-channels.c wow-channels.h forever-setup.h $(PREFIX_INIT_HEADER) sha256.h
@@ -534,8 +547,7 @@ test-direct-reserve: $(HOST_OUT)/test-direct-reserve
 # ps5_direct.c and virtual.c are read at the pin; the fork's patches are applied to copies.
 $(HOST_OUT)/test-direct-reserve: test-direct-reserve.c build-direct-reserve-test.py \
 		build-browser-switches-test.py build-desktop-surface-test.py \
-		$(WINE_SRC)/dlls/ntdll/unix/ps5_direct.c $(WINE_SRC)/dlls/ntdll/unix/virtual.c \
-		$(wildcard ../../wine/patches/*.patch)
+		$(WINE_SRC)/dlls/ntdll/unix/ps5_direct.c $(WINE_SRC)/dlls/ntdll/unix/virtual.c $(WINE_PATCHED)
 	python3 build-direct-reserve-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
 
 

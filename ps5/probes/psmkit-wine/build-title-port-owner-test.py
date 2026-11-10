@@ -5,6 +5,7 @@ from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 import shlex
 import subprocess
+import tempfile
 
 NAMES = ('pw_writebroker_transfer', 'pw_writebroker_probe', 'pw_addon_worker_get_u32',
          'pw_addon_worker_put_u32', 'pw_addon_worker_answers', 'pw_addon_worker_wait_stopped')
@@ -22,15 +23,20 @@ def main():
     spec = spec_from_file_location('surface_test', here / 'build-desktop-surface-test.py')
     module = module_from_spec(spec)
     spec.loader.exec_module(module)
+    spec = spec_from_file_location('browser_switches_test', here / 'build-browser-switches-test.py')
+    switches = module_from_spec(spec)
+    spec.loader.exec_module(switches)
     source = args.native_entry or here / 'native-entry.c'
     args.output.parent.mkdir(parents=True, exist_ok=True)
     (args.output.parent / 'title-port-owner.inc').write_text(
         '\n\n'.join(module.definition(source, name) for name in NAMES) + '\n')
-    subprocess.run(shlex.split(args.cc) + [
-        '-std=gnu11', '-O2', '-g', '-Wall', '-Wextra', '-Werror', '-pthread',
-        '-I' + str(args.wine / 'include'), '-I' + str(args.output.parent),
-        str(here / 'test-title-port-owner.c'), '-o', str(args.output),
-    ], check=True)
+    with tempfile.TemporaryDirectory() as work:
+        subprocess.run(shlex.split(args.cc) + [
+            '-std=gnu11', '-O2', '-g', '-Wall', '-Wextra', '-Werror', '-pthread',
+            '-I' + str(switches.patched_include(args.wine, Path(work))),
+            '-I' + str(args.wine / 'include'), '-I' + str(args.output.parent),
+            str(here / 'test-title-port-owner.c'), '-o', str(args.output),
+        ], check=True)
     print('TITLE_PORT_OWNER_ISOLATION ' + ','.join(NAMES) + ' implementation=PRODUCTION_EXTRACTED')
 
 
