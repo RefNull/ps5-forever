@@ -5,6 +5,7 @@ import importlib.util
 import os
 from pathlib import Path
 import shlex
+import subprocess
 import tempfile
 import zipfile
 
@@ -30,6 +31,7 @@ def functions(path, names, namespace):
 
 stamp = load('configure_stamp', PS5 / 'configure-stamp.py')
 package = load('release_package', PS5 / 'release/package.py')
+fetch = load('fetch_sources', PS5 / 'release/fetch-sources.py')
 
 with tempfile.TemporaryDirectory() as directory:
     root = Path(directory)
@@ -136,4 +138,25 @@ printf 'CFLAGS = %s\\nCXXFLAGS = -g -O2\\ni386_CFLAGS = %s\\nx86_64_CFLAGS = %s\
         output = root / f'parallel-{jobs}.zip'
         package.write_archive(output, entries, names, jobs)
         assert output.read_bytes() == serial.read_bytes(), jobs
-print('build-speed: configure stamp, compile index and parallel/serial ZIP bytes PASS')
+    # Restoring a patched checkout rewrites only the patched files: a file that
+    # is merely stat-dirty (a Wine cache miss touches every source) keeps its
+    # mtime, so the next incremental make does not rebuild the whole tree.
+    checkout = root / 'checkout'
+    checkout.mkdir()
+    git = ['git', '-C', str(checkout), '-c', 'user.name=test', '-c', 'user.email=test@invalid']
+    subprocess.run([*git, 'init', '-q'], check=True)
+    (checkout / 'touched.c').write_text('unchanged\n')
+    (checkout / 'patched.c').write_text('pinned\n')
+    subprocess.run([*git, 'add', '.'], check=True)
+    subprocess.run([*git, 'commit', '-q', '-m', 'pin'], check=True)
+    os.utime(checkout / 'touched.c', ns=(10**18, 10**18))
+    (checkout / 'patched.c').write_text('patched\n')
+    stamp = Path(subprocess.run([*git, 'rev-parse', '--path-format=absolute', '--git-path',
+                                 'forever-patches'], check=True, capture_output=True,
+                                text=True).stdout.strip())
+    stamp.write_text('series\n')
+    assert fetch.restore_patched(checkout)
+    assert (checkout / 'patched.c').read_text() == 'pinned\n'
+    assert (checkout / 'touched.c').stat().st_mtime_ns == 10**18
+    assert not stamp.exists() and not fetch.restore_patched(checkout)
+print('build-speed: restore keeps unpatched mtimes; configure stamp, compile index and parallel/serial ZIP bytes PASS')

@@ -18,6 +18,29 @@ def git(path, *arguments, capture=False):
     return result.stdout.strip() if capture else None
 
 
+def restore_pinned_files(path):
+    """Rewrite only the tracked files whose content differs from the index.
+
+    `git checkout -- .` also rewrites files that are merely stat-dirty (same
+    content, newer mtime or another inode). A Wine cache miss touches every
+    source file, so a plain checkout on the next run gave all of them a new
+    mtime and made Wine's incremental make rebuild the whole tree."""
+    subprocess.run(['git', '-C', str(path), 'update-index', '-q', '--refresh'],
+                   stdout=subprocess.DEVNULL)
+    git(path, 'checkout', '--', '.')
+
+
+def restore_patched(path):
+    """Undo a patch series a previous build applied in place; True if one was."""
+    stamp = Path(git(path, 'rev-parse', '--path-format=absolute',
+                     '--git-path', 'forever-patches', capture=True))
+    if not stamp.is_file():
+        return False
+    restore_pinned_files(path)
+    stamp.unlink()
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source_root', type=Path)
@@ -41,6 +64,12 @@ def main():
         if (destination / '.git').exists():
             if git(destination, 'rev-parse', 'HEAD', capture=True) != revision:
                 raise SystemExit(f'{relative}: existing checkout is not at {revision}')
+            # A previous build applied this repository's patch series in place
+            # (ps5/build-wine.sh, ps5/build-vkd3d-proton.sh) and left a stamp.
+            # Restore the pinned files so validate_sources sees a clean tree;
+            # changes without a stamp are not ours and still fail there.
+            if restore_patched(destination):
+                print(f'RESTORED {source["name"]} pinned files after a patched build', flush=True)
             print(f'CHECKOUT {source["name"]} {revision} existing', flush=True)
             continue
         if destination.exists() and any(destination.iterdir()):

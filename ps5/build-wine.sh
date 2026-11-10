@@ -200,6 +200,9 @@ stamp=$(git -C "$src" rev-parse --path-format=absolute --git-path forever-patche
 series=$( (( ${#patches[@]} )) && cat "${patches[@]}" | git hash-object --stdin || echo none)
 if [[ $(cat "$stamp" 2>/dev/null) != "$series" ]]; then
     if [[ -f $stamp ]]; then
+        # Refresh first: checkout rewrites stat-dirty files too, and new mtimes
+        # would make an incremental build recompile unchanged sources.
+        git -C "$src" update-index -q --refresh || true
         git -C "$src" checkout -- .
     elif ! git -C "$src" diff --quiet HEAD; then
         printf '%s has local changes; ps5/wine/patches applies only to a clean pinned checkout\n' \
