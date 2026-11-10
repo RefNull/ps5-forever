@@ -1,0 +1,118 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: RefNull <82533767+RefNull@users.noreply.github.com>
+Date: Tue, 10 Nov 2026 08:12:28 +0100
+Subject: [PATCH] ntdll: Merge a title profile's Chromium feature lists into
+ the launch's.
+
+Chromium keeps only the last --enable-features= or --disable-features=
+of a command line. A launch that already carries one, as Steam's
+steamwebhelper.exe does, would otherwise lose the profile's features:
+they are now added to its list, without duplicates. Every other switch
+the launch sets keeps its value.
+---
+ dlls/ntdll/unix/process.c | 77 +++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 74 insertions(+), 3 deletions(-)
+
+diff --git a/dlls/ntdll/unix/process.c b/dlls/ntdll/unix/process.c
+index 507dc46..9b6e344 100644
+--- a/dlls/ntdll/unix/process.c
++++ b/dlls/ntdll/unix/process.c
+@@ -1344,10 +1344,78 @@ static BOOL wcs_has_ascii( const WCHAR *str, size_t len, const char *needle, siz
+     return FALSE;
+ }
+ 
++/* Chromium keeps only the last --enable-features= or --disable-features= of a
++ * command line, so a profile's features are merged into the list the launch
++ * already carries instead of being dropped or replacing it. */
++static BOOL title_feature_switch( const char *sw, size_t len )
++{
++    return (len == 18 && !memcmp( sw, "--enable-features=", 18 )) ||
++           (len == 19 && !memcmp( sw, "--disable-features=", 19 ));
++}
++
++static BOOL title_switch_end( WCHAR ch )
++{
++    return ch == ' ' || ch == '\t' || ch == '"';
++}
++
++/* Adds each comma-separated feature in [value, value_end) that the last key
++ * argument of buffer[0, *used) lacks to that argument's list. Returns FALSE,
++ * changing nothing, if there is no such argument. Each added feature takes at
++ * most one more character than its text in the profile, which also holds the
++ * switch's key and the space before it, so the caller's capacity covers it. */
++static BOOL title_merge_features( WCHAR *buffer, size_t *used, const char *key, size_t key_len,
++                                  const char *value, const char *value_end )
++{
++    size_t i, j, list = 0, list_end;
++    BOOL found = FALSE;
++
++    for (i = 0; i + key_len <= *used; i++)
++    {
++        if (i && !title_switch_end( buffer[i - 1] )) continue;
++        for (j = 0; j < key_len && buffer[i + j] == (unsigned char)key[j]; j++);
++        if (j == key_len)
++        {
++            list = i + key_len;
++            found = TRUE;
++        }
++    }
++    if (!found) return FALSE;
++    for (list_end = list; list_end < *used && !title_switch_end( buffer[list_end] ); list_end++);
++
++    while (value < value_end)
++    {
++        const char *item_end;
++        size_t item_len, start, stop, insert;
++        BOOL present = FALSE;
++
++        for (item_end = value; item_end < value_end && *item_end != ','; item_end++);
++        item_len = item_end - value;
++        for (start = list; item_len && !present && start < list_end; start = stop + 1)
++        {
++            for (stop = start; stop < list_end && buffer[stop] != ','; stop++);
++            if (stop - start != item_len) continue;
++            for (j = 0; j < item_len && buffer[start + j] == (unsigned char)value[j]; j++);
++            present = j == item_len;
++        }
++        if (item_len && !present)
++        {
++            insert = item_len + (list_end > list);
++            memmove( buffer + list_end + insert, buffer + list_end, (*used - list_end) * sizeof(WCHAR) );
++            if (list_end > list) buffer[list_end++] = ',';
++            for (j = 0; j < item_len; j++) buffer[list_end++] = (unsigned char)value[j];
++            *used += insert;
++        }
++        value = item_end < value_end ? item_end + 1 : item_end;
++    }
++    return TRUE;
++}
++
+ /* The product's Chromium switches for a program, from WINEPS5_BROWSER_SWITCHES
+  * ("Program.exe --switch --other=value;Other.exe ..."), appended to a launch
+  * of that program that lacks them, except Chromium's own subprocesses
+- * (--type=). Battle.net restarts itself after an update as
++ * (--type=). A switch the launch already sets keeps its value, except
++ * --enable-features= and --disable-features=, whose lists are merged.
++ * Battle.net restarts itself after an update as
+  * "Battle.net.exe --updatepid=N", without the switches its launcher was given,
+  * and the new window then spent three title slots on GPU and network
+  * processes so its pages found none for a renderer (run
+@@ -1391,10 +1459,13 @@ static RTL_USER_PROCESS_PARAMETERS *title_browser_switches( RTL_USER_PROCESS_PAR
+             while (sw < end && *sw == ' ') sw++;
+             for (sw_end = sw; sw_end < end && *sw_end != ' '; sw_end++);
+             if (sw == sw_end) break;
+-            /* a switch the command line already sets, with any value, stays as it is */
++            /* a switch the command line already sets, with any value, stays as it
++             * is; a feature list is merged into the one it sets */
+             for (key_end = sw; key_end < sw_end && *key_end != '='; key_end++);
+             if (key_end < sw_end) key_end++;
+-            if (!wcs_has_ascii( cmd, cmd_len, sw, key_end - sw ))
++            if (!(title_feature_switch( sw, key_end - sw ) &&
++                  title_merge_features( *buffer, &used, sw, key_end - sw, key_end, sw_end )) &&
++                !wcs_has_ascii( cmd, cmd_len, sw, key_end - sw ))
+             {
+                 (*buffer)[used++] = ' ';
+                 while (sw < sw_end) (*buffer)[used++] = (unsigned char)*sw++;
+-- 
+2.54.0 (Apple Git-157)
+

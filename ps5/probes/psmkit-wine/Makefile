@@ -111,7 +111,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 		$(HOST_OUT)/test-title-voice-overlay $(HOST_OUT)/test-title-voice-overlay-vulkan \
 		$(HOST_OUT)/test-runtime-relaunch $(HOST_OUT)/test-wow-channels \
 		$(HOST_OUT)/test-battlenet-restart $(HOST_OUT)/test-audio-mixer \
-		$(HOST_OUT)/test-audio-selection $(HOST_OUT)/test-fd-parking \
+		$(HOST_OUT)/test-audio-selection $(HOST_OUT)/test-fd-parking $(HOST_OUT)/test-browser-switches \
 		$(HOST_OUT)/test-writebroker-autostart $(HOST_OUT)/test-writebroker-space $(HOST_OUT)/test-writebroker-open \
 		$(HOST_OUT)/test-writebroker-lifecycle $(HOST_OUT)/test-title-port-owner \
 		$(HOST_OUT)/test-title-log \
@@ -152,6 +152,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 	$(HOST_OUT)/test-audio-mixer
 	$(HOST_OUT)/test-audio-selection
 	$(HOST_OUT)/test-fd-parking
+	$(HOST_OUT)/test-browser-switches
 	$(HOST_OUT)/test-writebroker-autostart
 	$(HOST_OUT)/test-writebroker-space
 	$(HOST_OUT)/test-writebroker-open
@@ -184,6 +185,15 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 
 $(HOST_OUT)/test-fd-parking: test-fd-parking.c build-fd-parking-test.py $(WINE_SRC)/server/fd.c
 	python3 build-fd-parking-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
+
+.PHONY: test-browser-switches
+test-browser-switches: $(HOST_OUT)/test-browser-switches
+	$(HOST_OUT)/test-browser-switches
+
+# process.c is read at the pin; the fork's patches are applied to a copy.
+$(HOST_OUT)/test-browser-switches: test-browser-switches.c build-browser-switches-test.py \
+		build-desktop-surface-test.py $(WINE_SRC)/dlls/ntdll/unix/process.c $(wildcard ../../wine/patches/*.patch)
+	python3 build-browser-switches-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
 
 $(HOST_OUT)/test-file-security: test-file-security.c build-file-security-test.py \
 		build-desktop-surface-test.py $(WINE_SRC)/server/file.c \
