@@ -118,7 +118,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 		$(HOST_OUT)/test-writebroker-autostart $(HOST_OUT)/test-writebroker-space $(HOST_OUT)/test-writebroker-open \
 		$(HOST_OUT)/test-writebroker-lifecycle $(HOST_OUT)/test-writebroker-namespace $(HOST_OUT)/test-title-port-owner \
 		$(HOST_OUT)/test-title-log \
-		$(HOST_OUT)/test-forever-setup $(HOST_OUT)/test-forever-menu $(HOST_OUT)/test-forever-exit \
+		$(HOST_OUT)/test-forever-setup $(HOST_OUT)/test-forever-menu $(HOST_OUT)/test-forever-exit $(HOST_OUT)/test-native-exit \
 		$(HOST_OUT)/test-addonforge-client $(HOST_OUT)/test-addonforge-worker $(HOST_OUT)/test-addonforge-security $(HOST_OUT)/test-addon-trash-native \
 		$(HOST_OUT)/test-addon-native-worker $(HOST_OUT)/addon-worker-host $(HOST_OUT)/test-addon-worker-elf \
 		$(HOST_OUT)/test-addon-worker-request $(HOST_OUT)/test-registry-save \
@@ -167,6 +167,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 	$(HOST_OUT)/test-forever-setup
 	$(HOST_OUT)/test-forever-menu
 	$(HOST_OUT)/test-forever-exit
+	$(HOST_OUT)/test-native-exit
 	$(HOST_OUT)/test-addonforge-client
 	$(HOST_OUT)/test-addonforge-worker
 	$(HOST_OUT)/test-addonforge-security
@@ -362,6 +363,10 @@ $(HOST_OUT)/test-forever-setup: test-forever-setup.c forever-setup.h $(PREFIX_IN
 $(HOST_OUT)/test-forever-exit: test-forever-exit.c build-forever-exit-test.py \
 		build-desktop-surface-test.py native-entry.c ../../title/forever-menu.h
 	python3 build-forever-exit-test.py --output "$@" --cc "$(HOST_CC)"
+
+$(HOST_OUT)/test-native-exit: test-native-exit.c build-native-exit-test.py \
+		build-desktop-surface-test.py native-entry.c
+	python3 build-native-exit-test.py --output "$@" --cc "$(HOST_CC)"
 
 $(HOST_OUT)/test-forever-menu: test-forever-menu.c forever-menu-settings.h forever-download.h ../../title/voice-model.h writebroker-menu.h \
 		forever-setup.h $(PREFIX_INIT_HEADER) wow-channels.h sha256.h ../../title/forever-menu.c ../../title/forever-menu.h

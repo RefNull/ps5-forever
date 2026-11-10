@@ -1502,18 +1502,22 @@ void __attribute__((noreturn)) pw_native_exit(int status)
         b1_wait();
     }
 #endif
-#if defined(PW_PARENT_ROLE) && PW_RUNTIME_GPU
-    io_log("b1 game exit status=%d; closing the app", status);
-    /* Native title libc exit/_exit triggers SIGSYS in libkernel on fw 5.50.
+#ifdef PW_PARENT_ROLE
+    /* Native title libc exit/_exit triggers SIGSYS in libkernel on fw 5.50,
+     * for the game and the launcher alike: the launcher lands here whenever
+     * its Wine program ends with no menu action, relaunch or setup pending.
      * Wine/server persistence, children, audio and stdout are already closed;
      * ask the shell to end the app instead, and never fall back to libc exit. */
-    io_log("b1 game shutdown complete; LoadExec path=exit status=%d", status);
+    const char *role = PW_RUNTIME_GPU ? "game" : "parent";
+    io_log("b1 %s exit status=%d; closing the app", role, status);
+    io_log("b1 %s shutdown complete; LoadExec path=exit status=%d", role, status);
     fflush(NULL);
     int result = sceSystemServiceLoadExec("exit", NULL);
-    io_log("b1 game exit LoadExec returned result=%d; waiting for app close", result);
+    io_log("b1 %s exit LoadExec returned result=%d; waiting for app close", role, result);
     for (;;) usleep(100000);
-#endif
+#else
     exit(status);
+#endif
 }
 
 #ifdef PW_PARENT_ROLE
