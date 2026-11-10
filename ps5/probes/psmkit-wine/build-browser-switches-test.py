@@ -12,21 +12,22 @@ import tempfile
 SOURCE = 'dlls/ntdll/unix/process.c'
 
 
-def patched_source(wine, patches, work):
-    """process.c with every patch that touches it, whether or not the checkout
-    already carries them (build-wine.sh patch runs after the host tests)."""
-    (work / SOURCE).parent.mkdir(parents=True)
-    shutil.copy2(wine / SOURCE, work / SOURCE)
+def patched_source(wine, patches, work, source=SOURCE):
+    """source (process.c by default) with every patch that touches it, whether
+    or not the checkout already carries them (build-wine.sh patch runs after
+    the host tests)."""
+    (work / source).parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(wine / source, work / source)
     for patch in sorted(patches.glob('*.patch')):
-        if f'diff --git a/{SOURCE} ' not in patch.read_text():
+        if f'diff --git a/{source} ' not in patch.read_text():
             continue
-        apply = ['git', 'apply', f'--include={SOURCE}', str(patch)]
+        apply = ['git', 'apply', f'--include={source}', str(patch)]
         if subprocess.run(apply + ['--check'], cwd=work, capture_output=True).returncode == 0:
             subprocess.run(apply, cwd=work, check=True)
         elif subprocess.run(apply + ['--check', '--reverse'], cwd=work,
                             capture_output=True).returncode != 0:
-            raise SystemExit(f'{patch.name} neither applies to nor is applied in {wine / SOURCE}')
-    return work / SOURCE
+            raise SystemExit(f'{patch.name} neither applies to nor is applied in {wine / source}')
+    return work / source
 
 
 def main():

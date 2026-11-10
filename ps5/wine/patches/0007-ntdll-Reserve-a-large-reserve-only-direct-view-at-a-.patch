@@ -1,0 +1,214 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: RefNull <82533767+RefNull@users.noreply.github.com>
+Date: Tue, 10 Nov 2026 11:20:54 +0100
+Subject: [PATCH] ntdll: Reserve a large reserve-only direct view at a free
+ fixed address.
+
+The kernel refuses with ENOMEM a reservation it places itself from
+16 GiB up, so Chromium's 32 GiB reservation, and the aligned 16 GiB one
+it then makes inside it, failed. When that happens to a reserve-only
+direct view, it is now reserved with PS5_KERNEL_MAP_FIXED where Wine's
+views, the GPU windows, the preloader's range and the process's VM map
+all show the range free: the highest such range for an allocation
+without a base, the caller's base otherwise. Commit, decommit and
+release treat it as any direct view. Allocations that succeed today
+keep their path.
+---
+ dlls/ntdll/unix/ps5_direct.c   |  29 +++++++++
+ dlls/ntdll/unix/unix_private.h |   1 +
+ dlls/ntdll/unix/virtual.c      | 113 ++++++++++++++++++++++++++++++++-
+ 3 files changed, 142 insertions(+), 1 deletion(-)
+
+diff --git a/dlls/ntdll/unix/ps5_direct.c b/dlls/ntdll/unix/ps5_direct.c
+index f3468c4..4d16975 100644
+--- a/dlls/ntdll/unix/ps5_direct.c
++++ b/dlls/ntdll/unix/ps5_direct.c
+@@ -301,6 +301,35 @@ void *ps5_direct_reserve( void *base, size_t size )
+     return MAP_FAILED;
+ }
+ 
++/* At a fixed address, which replaces whatever the range overlaps: the caller
++ * has found it free in the VM map (virtual.c's title_direct_reserve_fixed). */
++void *ps5_direct_reserve_fixed( void *base, size_t size )
++{
++    void *placed = base;
++    int32_t result;
++
++    assert( direct_memory_enabled && !((uintptr_t)base % DIRECT_UNIT_SIZE) &&
++            !(size % DIRECT_UNIT_SIZE) );
++    result = sceKernelReserveVirtualRange( &placed, size, PS5_KERNEL_MAP_FIXED, DIRECT_UNIT_SIZE );
++    if (result)
++    {
++        direct_error( "view-reserve-fixed", "reserve", result );
++        errno = ENOMEM;
++        return MAP_FAILED;
++    }
++    if (placed != base)
++    {
++        direct_wrong_address( "view-reserve-fixed", "reserve", base, placed );
++        if ((result = sceKernelMunmap( placed, size )))
++            direct_error( "view-reserve-fixed", "unmap-unexpected-reservation", result );
++        errno = ENOMEM;
++        return MAP_FAILED;
++    }
++    direct_log( "wine: ps5-direct reserve fallback size=0x%zx addr=0x%llx\n",
++                size, (unsigned long long)(uintptr_t)base );
++    return base;
++}
++
+ struct ps5_direct_view *ps5_direct_create_view( void *base, size_t size )
+ {
+     struct ps5_direct_view *view, **prev;
+diff --git a/dlls/ntdll/unix/unix_private.h b/dlls/ntdll/unix/unix_private.h
+index 03ab5ea..ad062ac 100644
+--- a/dlls/ntdll/unix/unix_private.h
++++ b/dlls/ntdll/unix/unix_private.h
+@@ -445,6 +445,7 @@ extern void ps5_title_fsop_close( LONG64 started );
+ extern void ps5_title_flush_all_coalesced_writes(void);
+ extern void ps5_title_stop_coalesced_writes(void);
+ extern void *ps5_direct_reserve( void *base, size_t size );
++extern void *ps5_direct_reserve_fixed( void *base, size_t size );
+ extern struct ps5_direct_view *ps5_direct_create_view( void *base, size_t size );
+ extern void ps5_direct_retain_view( struct ps5_direct_view *view );
+ extern void ps5_direct_free_view( struct ps5_direct_view *view );
+diff --git a/dlls/ntdll/unix/virtual.c b/dlls/ntdll/unix/virtual.c
+index a6ca40c..c323107 100644
+--- a/dlls/ntdll/unix/virtual.c
++++ b/dlls/ntdll/unix/virtual.c
+@@ -4050,6 +4050,113 @@ static void *alloc_free_area( char *limit_low, char *limit_high, size_t size, BO
+     return result;
+ }
+ 
++#ifdef __PROSPERO__
++/* The kernel refuses with ENOMEM a reservation it places itself from 16 GiB
++ * up, as Chromium's 32 GiB one, yet takes 32 GiB at a fixed address, and a
++ * reservation costs no page-table pages (ps5/probes/va-reserve). So once its
++ * ordinary placement has failed, a reserve-only direct view is reserved at a
++ * fixed address that both Wine's views and the process's VM map show free.
++ * Commit, decommit and release then work on it as on any direct view. */
++static BOOL title_direct_reserve_only( unsigned int vprot )
++{
++    return (vprot & (VPROT_PS5_DIRECT | VPROT_COMMITTED)) == VPROT_PS5_DIRECT;
++}
++
++/* 1 when [addr, addr + size) meets an entry of the process's VM map, with
++ * *busy set to the lowest such entry's start; 0 when it is free; -1 when the
++ * map cannot be read. */
++static int title_vm_busy( char *addr, size_t size, char **busy )
++{
++    int mib[4] = { CTL_KERN, KERN_PROC, KERN_PROC_VMMAP, getpid() };
++    size_t length = 0;
++    char *buf, *p;
++    int ret = 0;
++
++    if (sysctl( mib, 4, NULL, &length, NULL, 0 )) return -1;
++    length += length / 4;  /* room for mappings made meanwhile */
++    if (!(buf = malloc( length ))) return -1;
++    if (sysctl( mib, 4, buf, &length, NULL, 0 ))
++    {
++        free( buf );
++        return -1;
++    }
++    for (p = buf; p < buf + length; )
++    {
++        const struct kinfo_vmentry *entry = (const struct kinfo_vmentry *)p;
++
++        if (entry->kve_structsize <= 0) break;
++        if (entry->kve_start < (UINT_PTR)addr + size && entry->kve_end > (UINT_PTR)addr &&
++            (!ret || entry->kve_start < (UINT_PTR)*busy))
++        {
++            *busy = (char *)(UINT_PTR)entry->kve_start;
++            ret = 1;
++        }
++        p += entry->kve_structsize;
++    }
++    free( buf );
++    return ret;
++}
++
++/* A fixed reservation replaces what it overlaps, so it is made only where the
++ * VM map shows the range free. Fails with EEXIST, and *busy set when given,
++ * where it is not; with ENOMEM when the map cannot be read or the kernel
++ * refuses. */
++static void *title_direct_reserve_fixed( char *base, size_t size, char **busy )
++{
++    char *taken;
++    int ret = title_vm_busy( base, size, &taken );
++
++    if (ret)
++    {
++        if (ret > 0 && busy) *busy = taken;
++        errno = ret > 0 ? EEXIST : ENOMEM;
++        return MAP_FAILED;
++    }
++    return ps5_direct_reserve_fixed( base, size );
++}
++
++/* A caller's base, which map_fixed_area has checked against the views and
++ * the GPU windows. */
++static void *title_direct_reserve( void *base, size_t size, unsigned int vprot )
++{
++    if (ps5_direct_reserve( base, size ) != MAP_FAILED) return base;
++    if (errno != ENOMEM || !title_direct_reserve_only( vprot )) return MAP_FAILED;
++    return title_direct_reserve_fixed( base, size, NULL );
++}
++
++/* No base, once alloc_free_area has failed: the highest range in [start, end)
++ * aligned to align_mask, stepping below each view, GPU window, preloader
++ * reservation or VM-map entry it meets. */
++static void *title_direct_reserve_high( char *start, char *end, size_t size, UINT_PTR align_mask,
++                                        unsigned int vprot )
++{
++    struct file_view *view;
++    uint64_t low;
++    char *addr, *busy = NULL;
++
++    if (!title_direct_reserve_only( vprot ) || end <= start || (size_t)(end - start) < size)
++        return NULL;
++    for (addr = ROUND_ADDR( end - size, align_mask ); addr >= start;
++         addr = ROUND_ADDR( busy - size, align_mask ))
++    {
++        if ((view = find_view_range( addr, size ))) busy = view->base;
++        else if (ps5_title_radv_ranges &&
++                 wine_ps5_title_radv_overlap( (UINT_PTR)addr, size, &low, NULL ))
++            busy = (char *)(UINT_PTR)low;
++        else if ((char *)preload_reserve_end > addr && (char *)preload_reserve_start < addr + size)
++            busy = preload_reserve_start;
++        else if (title_direct_reserve_fixed( addr, size, &busy ) != MAP_FAILED)
++        {
++            ps5_title_note_reservation( addr, size );
++            return addr;
++        }
++        else if (errno != EEXIST) return NULL;
++        if (busy < start || (size_t)(busy - start) < size) return NULL;
++    }
++    return NULL;
++}
++#endif
++
+ /***********************************************************************
+  *           map_fixed_area
+  *
+@@ -4077,7 +4184,8 @@ static NTSTATUS map_fixed_area( void *base, size_t size, int unix_prot, unsigned
+     if (vprot & VPROT_PS5_DIRECT)
+     {
+         if ((UINT_PTR)base & granularity_mask) return STATUS_CONFLICTING_ADDRESSES;
+-        if (ps5_direct_reserve( base, ROUND_SIZE( 0, size, granularity_mask ) ) == MAP_FAILED) goto failed;
++        if (title_direct_reserve( base, ROUND_SIZE( 0, size, granularity_mask ), vprot ) == MAP_FAILED)
++            goto failed;
+         ps5_title_note_reservation( base, ROUND_SIZE( 0, size, granularity_mask ) );
+         return STATUS_SUCCESS;
+     }
+@@ -4270,6 +4378,9 @@ static NTSTATUS map_view( struct file_view **view_ret, void *base, size_t size,
+             ptr = alloc_free_area( (void *)limit_low, (void *)limit_high, size, top_down, unix_prot, align_mask, vprot );
+ #endif
+             if (!is_win64) increase_try_map_step = TRUE;
++#ifdef __PROSPERO__
++            if (!ptr) ptr = title_direct_reserve_high( start, end, host_size, align_mask, vprot );
++#endif
+             if (!ptr) return STATUS_NO_MEMORY;
+         }
+     }
+-- 
+2.54.0 (Apple Git-157)
+

@@ -106,6 +106,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 		$(HOST_OUT)/test-elf-runtime $(HOST_OUT)/test-wine-title \
 		$(HOST_OUT)/test-wine-title-exit $(HOST_OUT)/test-write-buffer $(HOST_OUT)/test-request-profile $(HOST_OUT)/test-runtime-profile-callbacks $(HOST_OUT)/test-loader-path $(HOST_OUT)/test-runtime-imports \
 		$(HOST_OUT)/test-direct-commit $(HOST_OUT)/test-direct-cache $(HOST_OUT)/test-direct-fail-fast $(HOST_OUT)/test-vm-cpu \
+		$(HOST_OUT)/test-direct-reserve \
 		$(HOST_OUT)/test-runtime-input $(HOST_OUT)/test-title-input \
 		$(HOST_OUT)/test-title-ime $(HOST_OUT)/test-title-voice \
 		$(HOST_OUT)/test-title-voice-overlay $(HOST_OUT)/test-title-voice-overlay-vulkan \
@@ -138,6 +139,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 	$(HOST_OUT)/test-direct-cache
 	$(HOST_OUT)/test-direct-fail-fast
 	$(HOST_OUT)/test-vm-cpu
+	$(HOST_OUT)/test-direct-reserve
 	$(HOST_OUT)/test-loader-path
 	$(HOST_OUT)/test-runtime-imports
 	$(HOST_OUT)/test-runtime-input
@@ -524,6 +526,17 @@ $(HOST_OUT)/test-direct-fail-fast: test-direct-fail-fast.c build-direct-cache-te
 $(HOST_OUT)/test-vm-cpu: test-vm-cpu.c build-direct-cache-test.py \
 		$(WINE_SRC)/dlls/ntdll/unix/virtual.c
 	python3 build-direct-cache-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)" --cpu-test
+
+.PHONY: test-direct-reserve
+test-direct-reserve: $(HOST_OUT)/test-direct-reserve
+	$(HOST_OUT)/test-direct-reserve
+
+# ps5_direct.c and virtual.c are read at the pin; the fork's patches are applied to copies.
+$(HOST_OUT)/test-direct-reserve: test-direct-reserve.c build-direct-reserve-test.py \
+		build-browser-switches-test.py build-desktop-surface-test.py \
+		$(WINE_SRC)/dlls/ntdll/unix/ps5_direct.c $(WINE_SRC)/dlls/ntdll/unix/virtual.c \
+		$(wildcard ../../wine/patches/*.patch)
+	python3 build-direct-reserve-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
 
 
 $(HOST_OUT)/test-loader-path: test-loader-path.c build-path-test.py $(WINE_SRC)/loader/main.h $(PLATFORM_SRC)/src/libc.c $(PLATFORM_SRC)/include/ps5platform/libc.h
