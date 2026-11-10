@@ -1729,8 +1729,9 @@ static int pw_forever_sync_managed(void)
 static int pw_forever_start(void)
 {
     static const char *const legacy[] = {
-        "/data/homebrew/PPSA99030/wine",
-        "/data/prosperostore/previous/PPSA99030/wine",
+        /* Steam test overlay: never move Forever Launcher's old data. */
+        "/data/homebrew/PPSA99031/wine",
+        "/data/prosperostore/previous/PPSA99031/wine",
     };
     static const char *const directories[] = { FOREVER_PREFIX, FOREVER_HOME, FOREVER_SHADER_CACHE };
     static const char *const defaults[][2] = {

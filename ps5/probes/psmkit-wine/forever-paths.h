@@ -5,8 +5,14 @@
 #define FOREVER_PATHS_H
 
 #define FOREVER_ROOT "/data/forever"
+/* Steam test overlay: first-start setup prepares the profile's prefix. */
+#ifdef PW_RUNTIME_PREFIX
+#define FOREVER_PREFIX PW_RUNTIME_PREFIX
+#define FOREVER_HOME PW_RUNTIME_HOME
+#else
 #define FOREVER_PREFIX FOREVER_ROOT "/prefix"
 #define FOREVER_HOME FOREVER_ROOT "/home"
+#endif
 #define FOREVER_SHADER_CACHE FOREVER_ROOT "/radv-shader-cache"
 #define FOREVER_STATE FOREVER_ROOT "/state"
 #define FOREVER_DRIVE_C FOREVER_PREFIX "/drive_c"

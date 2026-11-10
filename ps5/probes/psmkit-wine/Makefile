@@ -71,9 +71,12 @@ $(ADDON_WORKER_ELF): $(ADDON_WORKER_DIR)/main.cpp $(ADDON_WORKER_DIR)/addon-work
 
 # Product publication: independently build/qualify maintenance first and game
 # second, then bind both receipts and both role-specific children into one tree.
+# Steam test overlay: the product is Steam, built only as a side-by-side app.
 runtime-b1-dual:
+	@case "$$FOREVER_TITLE_ID" in ""|PPSA99030) \
+	    echo "the Steam test needs FOREVER_TITLE_ID set to a test app's ID" >&2; exit 2;; esac
 	rm -rf "$(B1_MAINTENANCE_OUT)" "$(B1_GAME_OUT)"
-	$(MAKE) runtime-b1 B1_PROFILE_CONFIG="$(CURDIR)/b1-product.json"
+	$(MAKE) runtime-b1 B1_PROFILE_CONFIG="$(CURDIR)/b1-steam.json"
 	cp -R "$(B1_OUT)" "$(B1_MAINTENANCE_OUT)"
 	$(MAKE) runtime-b1 B1_PROFILE_CONFIG="$(B1_GAME_PROFILE_CONFIG)"
 	cp -R "$(B1_OUT)" "$(B1_GAME_OUT)"
