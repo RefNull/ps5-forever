@@ -684,11 +684,12 @@ static void test_voice_menu(void)
     forever_menu_open(&menu, &values);
     forever_menu_render(&menu, text, sizeof(text));
     assert(strstr(text, "Voice-to-Text\tOff"));
-    assert(strstr(text, "Proximity Voice Chat\tComing later"));
-    result = forever_menu_click_line(&menu, FOREVER_MENU_LINE_PROXIMITY_VOICE);
-    assert(result.command == FOREVER_MENU_COMMAND_NONE);
+    assert(!strstr(text, "Proximity"));
+    assert(strstr(text, "Voice-to-Text\tOff\n ----"));
+    assert(FOREVER_MENU_LINE_ADDONS == FOREVER_MENU_LINE_VOICE + 2);
+    result = forever_menu_click_line(&menu, FOREVER_MENU_LINE_VOICE + 1);
+    assert(result.command == FOREVER_MENU_COMMAND_NONE && !menu.status[0]);
     assert(menu.selected == FOREVER_MENU_FRAME_GENERATION);
-    assert(!strcmp(menu.status, "Proximity Voice Chat is coming later."));
     result = forever_menu_click_line(&menu, FOREVER_MENU_LINE_VOICE);
     assert(result.command == FOREVER_MENU_COMMAND_SET_VOICE && result.enabled);
     assert(!menu.values.voice); /* no optimistic on before the verified download */
@@ -712,7 +713,7 @@ static void test_voice_menu(void)
     forever_menu_render(&menu, text, sizeof(text));
     assert(strstr(text, "SHA-256 mismatch") && strstr(text, "Voice-to-Text is off."));
     forever_menu_move(&menu, 1);
-    assert(menu.selected == FOREVER_MENU_ADDONS); /* Coming later is not pad-selectable */
+    assert(menu.selected == FOREVER_MENU_ADDONS);
     forever_menu_close(&menu);
     forever_menu_open(&menu, &values);
     assert(!menu.voice_downloading && !menu.status[0]);

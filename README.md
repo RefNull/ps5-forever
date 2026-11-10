@@ -164,8 +164,6 @@ close, or click with a mouse. The menu can:
 - remove and reinstall Battle.net from a fresh installer download;
 - close Battle.net and the app (**Exit Battle.net**).
 
-**Proximity Voice Chat** is coming later; it is not available yet.
-
 Each app start shows a ten-second hint for **Options** over Battle.net.
 
 Open **Add-ons** before pressing Play. L1/R1 cycles through detected installed

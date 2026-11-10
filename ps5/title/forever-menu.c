@@ -773,9 +773,6 @@ struct forever_menu_result forever_menu_click_line(struct forever_menu_state *me
         case FOREVER_MENU_LINE_HUD: menu->selected = FOREVER_MENU_HUD; break;
         case FOREVER_MENU_LINE_INVERT_SCROLL: menu->selected = FOREVER_MENU_INVERT_SCROLL; break;
         case FOREVER_MENU_LINE_VOICE: menu->selected = FOREVER_MENU_VOICE; break;
-        case FOREVER_MENU_LINE_PROXIMITY_VOICE:
-            copy_status(menu, "Proximity Voice Chat is coming later.");
-            return none();
         case FOREVER_MENU_LINE_ADDONS: menu->selected = FOREVER_MENU_ADDONS; break;
         case FOREVER_MENU_LINE_REINSTALL: menu->selected = FOREVER_MENU_REINSTALL; break;
         case FOREVER_MENU_LINE_UNINSTALL: menu->selected = FOREVER_MENU_UNINSTALL; break;
@@ -974,7 +971,6 @@ void forever_menu_render(const struct forever_menu_state *menu, char *text, size
                  "%s Performance overlay\t%s\n"
                  "%s Invert mouse scroll\t%s\n"
                  "%s Voice-to-Text\t%s\n"
-                 "  Proximity Voice Chat\tComing later\n"
                  " ---------------------------------------------\n"
                  "%s Add-ons...\tManage\n"
                  " ---------------------------------------------\n"
