@@ -36,12 +36,12 @@ TITLE_VOICE += ../../title/voice-model.h forever-download.h
 TITLE_VOICE += ../../title/voice-overlay-raster.c ../../title/voice-overlay-raster.h \
 	../../title/voice-overlay-vulkan.c ../../title/voice-overlay-vulkan.h ../../title/bitmap-font.h
 
-.PHONY: test test-startup-routing test-runtime-profile runtime-b1 runtime-b1-dual
+.PHONY: test test-startup-routing test-runtime-profile test-forever-unpack runtime-b1 runtime-b1-dual
 
 runtime-b1: $(HOST_OUT)/test-staged-runtime build-runtime.py runtime_profiles.py \
 		runtime_imports.py runtime-import-policy-b1.json native-entry.c runtime-parent.c \
 		runtime-parent.h runtime-relaunch.h wow-channels.h writebroker-autostart.h writebroker-menu.h \
-		forever-menu-settings.h forever-setup.h $(PREFIX_INIT_HEADER) sha256.h addon-worker-elf.h runtime-vulkan.c runtime-profile.h runtime-input.c \
+		forever-menu-settings.h forever-setup.h forever-unpack.h forever-miniz.c $(PREFIX_INIT_HEADER) sha256.h addon-worker-elf.h runtime-vulkan.c runtime-profile.h runtime-input.c \
 		protocol.c protocol.h title-log.c title-log.h $(TITLE_DESKTOP) $(TITLE_VOICE) \
 		../../title/installer-continue.h \
 		../../title/forever-menu.h ../../title/addonforge-client.h \
@@ -123,7 +123,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 		$(HOST_OUT)/test-title-icon $(HOST_OUT)/test-desktop-surface \
 		$(HOST_OUT)/test-cursor $(HOST_OUT)/test-cursor-hub \
 		$(HOST_OUT)/test-cursor-peer $(HOST_OUT)/test-file-security \
-		$(PE_OUT)/audio-tone.exe test-startup-routing test-runtime-profile test-build-speed test-pins \
+		$(PE_OUT)/audio-tone.exe test-startup-routing test-runtime-profile test-forever-unpack test-build-speed test-pins \
 		../../tools/test-ps5-capture.py
 	$(HOST_OUT)/test-protocol
 	$(HOST_OUT)/test-supervisor-admission
@@ -233,6 +233,19 @@ $(HOST_OUT)/test-supervisor-admission: test-supervisor-admission.c build-supervi
 $(HOST_OUT)/test-installer-continue: test-installer-continue.c ../../title/installer-continue.h
 	mkdir -p $(HOST_OUT)
 	$(HOST_CC) -std=c11 -O2 -g -Wall -Wextra -Werror $< -o $@
+
+# Unpack mode's zip reader: miniz as the title builds it (forever-miniz.c).
+$(HOST_OUT)/forever-miniz.o: forever-miniz.c forever-unpack.h sha256.h \
+		$(wildcard $(ADDON_WORKER_DIR)/third_party/miniz/*)
+	mkdir -p $(HOST_OUT)
+	$(HOST_CC) -std=gnu11 -O2 -w -c $< -o $@
+
+$(HOST_OUT)/test-forever-unpack: test-forever-unpack.c forever-unpack.h sha256.h $(HOST_OUT)/forever-miniz.o
+	mkdir -p $(HOST_OUT)
+	$(HOST_CC) -std=gnu11 -O2 -g -Wall -Wextra -Werror $< $(HOST_OUT)/forever-miniz.o -o $@
+
+test-forever-unpack: $(HOST_OUT)/test-forever-unpack test-forever-unpack.py
+	python3 test-forever-unpack.py $(HOST_OUT)/test-forever-unpack
 
 .PHONY: test-desktop-surface
 test-desktop-surface: $(HOST_OUT)/test-desktop-surface

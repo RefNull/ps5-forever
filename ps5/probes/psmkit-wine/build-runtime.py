@@ -562,6 +562,11 @@ installer_argv = [selected['loader'], r'C:\windows\system32\start.exe', '/exec',
 profile_defines += '#define PW_RUNTIME_INSTALLER_ARGV {' + ','.join(
     '(char *)' + json.dumps(value) for value in installer_argv) + ',NULL}\n'
 profile_defines += f'#define PW_RUNTIME_INSTALLER_ARGC {len(installer_argv)}\n'
+# Only a product that sets them gets these, and with installer_unpack the
+# miniz reader (forever-miniz.c); Battle.net's build is unchanged.
+profile_defines += ''.join(
+    f'#define PW_RUNTIME_{key.upper()} {json.dumps(selected[key])}\n'
+    for key in ('installer_sha256', 'installer_unpack') if key in selected)
 profile_defines += '#define PW_RUNTIME_PAYLOAD_PROGRAMS ' + json.dumps(';'.join(selected['payload_programs'])) + '\n'
 profile_defines += '#define PW_RUNTIME_REFUSED_PROGRAMS ' + json.dumps(';'.join(selected['refused_programs'])) + '\n'
 profile_defines += '#define PW_RUNTIME_PREFETCH_HOSTS ' + json.dumps(';'.join(selected['prefetch_hosts'])) + '\n'
@@ -669,6 +674,8 @@ if selected.get('gpu', False):
                    title / 'input.c', title / 'pointer.c', title / 'ime.c',
                    title / 'voice-state.c', title / 'voice-overlay-raster.c',
                    title / 'voice-overlay-vulkan.c']
+unpack_sources = ([here / 'forever-miniz.c']
+                  if 'installer_unpack' in selected and not selected.get('gpu', False) else [])
 radv_archive = (Path(os.environ.get('PS5_RADV_INSTALL', str(here / '../../build/radv-release-patched'))) /
                 'lib/libvulkan_radeon.ps5.a').resolve()
 if gpu_sources and not radv_archive.is_file():
@@ -679,7 +686,7 @@ if diagnostic_menu:
     parent_env['FOREVER_MENU_DIAG'] = '1'
 run(['bash', here / '../../title/build.sh', parent_out, parent_wrapper,
      here / 'elf-runtime.c', here / 'protocol.c', parent_supervisor, *desktop_sources, *gpu_sources,
-     *io_sources, parent_loader_object, safe_libc_archive],
+     *unpack_sources, *io_sources, parent_loader_object, safe_libc_archive],
     cwd=here, env=parent_env)
 parameter = parent_out / 'sce_sys/param.json'
 built_metadata = json.loads(parameter.read_text())

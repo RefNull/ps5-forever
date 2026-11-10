@@ -18,9 +18,10 @@ ADDON_WORKER_MAX_BYTES = 2 * 1024 * 1024
 # User data outside the app folder, which a store update replaces. ShadowMountPlus
 # 1.7beta3+ mounts /data into the title's sandbox.
 USER_DATA_ROOT = '/data/forever'
-# Optional product inputs; the defaults are Battle.net's.
+# Optional product inputs; the defaults are Battle.net's. installer_sha256 and
+# installer_unpack have no default: Battle.net's profile never carries them.
 PRODUCT_KEYS = ('product_name', 'launcher_dos', 'installer_url', 'installer_fallback_url',
-                'installer_dos', 'installer_args')
+                'installer_dos', 'installer_args', 'installer_sha256', 'installer_unpack')
 
 
 def _valid_hdr_mode(setting):
@@ -338,8 +339,20 @@ def profile(name, overrides=None):
                 selected[key] = value
             elif key == 'installer_dos':
                 parts = _dos_parts(value)
-                if not parts or len(parts) != 1 or not parts[0].lower().endswith('.exe'):
-                    raise ValueError('B1 installer_dos must be an .exe directly under C:\\')
+                if not parts or len(parts) != 1 or not parts[0].lower().endswith(('.exe', '.zip')):
+                    raise ValueError('B1 installer_dos must be an .exe or .zip directly under C:\\')
+                selected[key] = value
+            elif key == 'installer_sha256':
+                if (not isinstance(value, str) or len(value) != 64 or
+                        any(char not in '0123456789abcdef' for char in value)):
+                    raise ValueError('B1 installer_sha256 must be 64 lowercase hex digits')
+                selected[key] = value
+            elif key == 'installer_unpack':
+                # the one file of the downloaded zip, written to launcher_dos
+                if (not isinstance(value, str) or not 0 < len(value) <= 255 or not value.isascii() or
+                        value in ('.', '..') or value[-1] in ' .' or
+                        any(ord(char) < 32 or ord(char) == 127 or char in '<>:"/\\|?*' for char in value)):
+                    raise ValueError('B1 installer_unpack must be a plain ASCII Windows file name')
                 selected[key] = value
             elif key in ('installer_url', 'installer_fallback_url'):
                 if not _valid_installer_url(value, key == 'installer_fallback_url'):
@@ -365,6 +378,16 @@ def profile(name, overrides=None):
                         '..' in PurePosixPath(value).parts):
                     raise ValueError(f'B1 {key} must stay inside the title /app0 tree or {USER_DATA_ROOT}')
                 selected[key] = value
+    if 'installer_unpack' in selected:
+        # The zip is verified and unpacked; no installer runs.
+        if 'installer_sha256' not in selected:
+            raise ValueError('B1 installer_unpack requires installer_sha256')
+        if selected['installer_args']:
+            raise ValueError('B1 installer_unpack runs no installer, so installer_args must be empty')
+        if not selected['installer_dos'].lower().endswith('.zip'):
+            raise ValueError('B1 installer_unpack downloads to a .zip installer_dos')
+    elif not selected['installer_dos'].lower().endswith('.exe'):
+        raise ValueError('B1 installer_dos is an .exe unless installer_unpack is set')
     if selected.get('runtime_game'):
         if not selected['gpu'] or (overrides and ('argv' in overrides or 'cwd' in overrides)):
             raise ValueError('B1 runtime_game requires GPU and runtime-supplied argv/cwd')

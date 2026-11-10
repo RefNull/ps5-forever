@@ -232,8 +232,10 @@ assert relocated['installer_unix'] == '/app0/wine/prefix/drive_c/Battle.net-Setu
 assert relocated['installer_part'] == '/app0/wine/prefix/drive_c/.Battle.net-Setup.exe.part'
 assert relocated['launcher_unix'] == '/app0/wine/prefix/drive_c/Program Files (x86)/Battle.net/Battle.net Launcher.exe'
 assert relocated['installer_cwd'] == '/app0/wine/prefix/drive_c'
-# Battle.net's values, restated as inputs, select the same profile.
-assert profile('b1', {key: b1[key] for key in PRODUCT_KEYS}) == b1
+# Battle.net's values, restated as inputs, select the same profile. It has no
+# installer digest or unpack member.
+assert 'installer_sha256' not in b1 and 'installer_unpack' not in b1
+assert profile('b1', {key: b1[key] for key in PRODUCT_KEYS if key in b1}) == b1
 other = profile('b1', {
     'prefix': '/data/forever/other/prefix', 'product_name': 'Other',
     'launcher_dos': r'C:\Program Files (x86)\Other\other.exe',
@@ -269,6 +271,48 @@ for key, bad in (
     else:
         raise AssertionError(f'B1 profile accepted {key}={bad!r}')
 assert profile('b1', {'installer_fallback_url': ''})['installer_fallback_url'] == ''
+# Unpack mode: a verified zip whose one file becomes launcher_dos; nothing runs.
+digest = hashlib.sha256(b'zip').hexdigest()
+unpack_inputs = {
+    'product_name': 'Unpacked', 'launcher_dos': r'C:\Program Files (x86)\Unpacked\unpacked.exe',
+    'installer_url': 'https://cdn.example.invalid/unpacked.zip', 'installer_dos': r'C:\unpacked.zip',
+    'installer_sha256': digest, 'installer_unpack': 'unpacked.exe'}
+unpacked = profile('b1', unpack_inputs)
+assert unpacked['installer_unpack'] == 'unpacked.exe' and unpacked['installer_sha256'] == digest
+assert unpacked['installer_unix'] == b1['prefix'] + '/drive_c/unpacked.zip'
+assert unpacked['installer_part'] == b1['prefix'] + '/drive_c/.unpacked.zip.part'
+assert unpacked['launcher_unix'] == b1['prefix'] + '/drive_c/Program Files (x86)/Unpacked/unpacked.exe'
+assert unpacked['installer_args'] == [] and unpacked['installer_fallback_url'] == ''
+# A digest alone also checks an .exe installer's download.
+assert profile('b1', {'installer_sha256': digest})['installer_sha256'] == digest
+for change in (
+        {'installer_sha256': digest.upper()}, {'installer_sha256': digest[:63]},
+        {'installer_sha256': 'g' * 64}, {'installer_sha256': 7},
+        {'installer_unpack': ''}, {'installer_unpack': '..'}, {'installer_unpack': '.'},
+        {'installer_unpack': '../unpacked.exe'}, {'installer_unpack': 'dir/unpacked.exe'},
+        {'installer_unpack': 'dir\\unpacked.exe'}, {'installer_unpack': 'C:unpacked.exe'},
+        {'installer_unpack': '/unpacked.exe'}, {'installer_unpack': 'unpacked.exe.'},
+        {'installer_unpack': 'a\nb.exe'}, {'installer_unpack': 'x' * 256},
+        {'installer_unpack': 'caf\u00e9.exe'}, {'installer_unpack': 7},
+        {'installer_sha256': None},  # removed below: unpack requires a digest
+        {'installer_args': ['/S']},  # nothing runs, so nothing takes arguments
+        {'installer_dos': r'C:\unpacked.exe'},  # the download is a zip
+        {'installer_dos': r'C:\Temp\unpacked.zip'}):
+    inputs = {**unpack_inputs, **change}
+    if inputs['installer_sha256'] is None:
+        del inputs['installer_sha256']
+    try:
+        profile('b1', inputs)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f'B1 unpack profile accepted {change!r}')
+try:
+    profile('b1', {'installer_dos': r'C:\Setup.zip'})
+except ValueError:
+    pass
+else:
+    raise AssertionError('B1 profile accepted a .zip installer it would run')
 # A side-by-side test app changes only the app's identity, from the environment.
 paths_sh = (Path(__file__).resolve().parents[2] / 'paths.sh').read_text()
 assert f'TITLE_ID={DEFAULT_TITLE_ID}\n' in paths_sh
@@ -308,6 +352,19 @@ assert 'char *installer_args[]=PW_RUNTIME_INSTALLER_ARGV;' in native_startup
 assert 'installer ? 4 :' not in native_startup
 assert native_startup.count('PW_RUNTIME_INSTALLER_ARGC') == 2
 assert "'/exec',\n                  selected['installer_dos'], *selected['installer_args']]" in build_source
+# Unpack mode is compiled only into a product that sets it; Battle.net's
+# build gets neither its defines nor miniz.
+assert "for key in ('installer_sha256', 'installer_unpack') if key in selected)" in build_source
+assert "'installer_unpack' in selected and not selected.get('gpu', False)" in build_source
+assert '*unpack_sources, *io_sources' in build_source
+assert '.cap = B1_INSTALLER_CAP, .mz = B1_INSTALLER_MZ, .sha256 = B1_INSTALLER_SHA256,' in download
+unpack_start = native_startup.split('installer = !forever_prefix_init && stat(PW_RUNTIME_LAUNCHER_UNIX', 1)[1]
+unpack_start = unpack_start.split('title_desktop_installer_mode', 1)[0]
+assert unpack_start.index('#ifdef PW_RUNTIME_INSTALLER_UNPACK') < unpack_start.index(
+    'if (installer && b1_unpack_installer())') < unpack_start.index('installer = 0;') < unpack_start.index('#else')
+unpack_step = native_startup.split('static int b1_unpack_installer(void)', 1)[1].split('\n}', 1)[0]
+assert 'Battle.net' not in unpack_step and 'unlink(PW_RUNTIME_INSTALLER_UNIX);' in unpack_step
+assert unpack_step.index('b1_download_installer()') < unpack_step.index('forever_unpack_zip(')
 assert profile('b1', {'payload_programs': [r'C:\ProgramData\Battle.net\Agent\Agent.exe']})['payload_programs'] == [
     r'C:\ProgramData\Battle.net\Agent\Agent.exe']
 assert ('"WINEDLLOVERRIDES=' + b1['payload_dll_overrides'] + '"') in (
@@ -558,7 +615,7 @@ with tempfile.TemporaryDirectory(prefix='pw-b1-profile-') as temporary:
     (folder / 'wine-title/title-root-manifest.json').write_text(json.dumps(manifest, sort_keys=True))
     for selected_profile, accepted in ((profile('b1', {'gpu': True, 'headless': True}), False),
                                        ({key: value for key, value in b1.items() if key != 'gpu'}, True),
-                                       (other, True)):
+                                       (other, True), (unpacked, True)):
         material['profile'] = selected_profile
         receipt['qualification_key'] = hashlib.sha256(json.dumps(
             material, sort_keys=True, separators=(',', ':')).encode()).hexdigest()

@@ -82,7 +82,7 @@ struct forever_download
 {
     const char *url, *part, *destination;
     uint64_t size, cap; /* size zero accepts the server's length (installer only) */
-    const char *sha256; /* 64 lowercase hex digits, or NULL for the MZ installer */
+    const char *sha256; /* 64 lowercase hex digits, or NULL for an unpinned installer */
     int mz;
     int resume; /* exact-size, hashed voice model only; never the installer */
     struct forever_download_info *info;
@@ -472,7 +472,7 @@ retry:
     *step = "installer MZ signature mismatch";
     if (download->mz && (*total < 2 || first[0] != 'M' || first[1] != 'Z'))
     { result = EINVAL; goto done; }
-    *step = "voice model SHA-256 mismatch";
+    *step = "download SHA-256 mismatch";
     if (download->sha256 && (result = forever_download_digest(&hash, download->sha256))) goto done;
     *step = "syncing download";
     if (fsync(fd)) { result = errno; goto done; }

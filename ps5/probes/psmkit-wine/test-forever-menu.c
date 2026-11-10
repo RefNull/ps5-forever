@@ -326,7 +326,7 @@ static void test_voice_download(void)
 
     download = download_case("abd");
     assert(download_run(&download, &step) == EINVAL);
-    assert(!strcmp(step, "voice model SHA-256 mismatch") && text_is("download/model", "old"));
+    assert(!strcmp(step, "download SHA-256 mismatch") && text_is("download/model", "old"));
     assert(!download_syncs && !download_renames);
 
     download = download_case("abc");

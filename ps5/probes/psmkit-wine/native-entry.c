@@ -1564,6 +1564,20 @@ static void b1_download_progress(void *opaque, uint64_t total, uint64_t length)
     b1_message(message);
 }
 
+#ifdef PW_RUNTIME_INSTALLER_UNPACK
+#include "forever-unpack.h"
+#define B1_INSTALLER_CAP FOREVER_UNPACK_MAX_ZIP_BYTES
+#define B1_INSTALLER_MZ 0
+#else
+#define B1_INSTALLER_CAP (256u * 1024u * 1024u)
+#define B1_INSTALLER_MZ 1
+#endif
+#ifdef PW_RUNTIME_INSTALLER_SHA256
+#define B1_INSTALLER_SHA256 PW_RUNTIME_INSTALLER_SHA256
+#else
+#define B1_INSTALLER_SHA256 NULL
+#endif
+
 /* Native I/O stays off the desktop thread. The shared stream follows the
  * profile's URL with fresh GETs; its fallback URL, if any, is a second chance. */
 static int b1_download_installer(void)
@@ -1594,7 +1608,7 @@ static int b1_download_installer(void)
         if (i) b1_message("Retrying the " PW_RUNTIME_PRODUCT_NAME " installer download from its direct link...");
         struct forever_download download = {
             .url = urls[i], .part = part, .destination = PW_RUNTIME_INSTALLER_UNIX,
-            .cap = 256u * 1024u * 1024u, .mz = 1,
+            .cap = B1_INSTALLER_CAP, .mz = B1_INSTALLER_MZ, .sha256 = B1_INSTALLER_SHA256,
             .progress = b1_download_progress, .hop = b1_download_hop, .opaque = &progress};
         result = forever_download_run(http.tmpl, &download, step, &total, &length);
         if (!result) break;
@@ -1622,6 +1636,32 @@ done:
     io_log("b1 parent installer downloaded bytes=%llu url=%u", (unsigned long long)total, i);
     return 0;
 }
+
+#ifdef PW_RUNTIME_INSTALLER_UNPACK
+/* The download is a zip whose one file is the launcher: nothing runs, and the
+ * zip is never kept, so a later start downloads and verifies it again. */
+static int b1_unpack_installer(void)
+{
+    const char *step = "";
+    char message[640];
+    int result;
+    if (b1_download_installer()) return -1;
+    b1_message("Installing " PW_RUNTIME_PRODUCT_NAME "...");
+    result = forever_unpack_zip(PW_RUNTIME_INSTALLER_UNIX, PW_RUNTIME_INSTALLER_SHA256,
+                                PW_RUNTIME_INSTALLER_UNPACK, PW_RUNTIME_LAUNCHER_UNIX, &step);
+    unlink(PW_RUNTIME_INSTALLER_UNIX);
+    if (result)
+    {
+        io_log("b1 parent unpack failed: %s result=%#x", step, result);
+        snprintf(message, sizeof(message), PW_RUNTIME_PRODUCT_NAME " install failed: %s (%#x).\nClose the title and try again.",
+                 step, result);
+        b1_message(message);
+        return -1;
+    }
+    io_log("b1 parent unpacked %s to the launcher path", PW_RUNTIME_INSTALLER_UNPACK);
+    return 0;
+}
+#endif
 #endif
 #endif
 
@@ -3943,8 +3983,15 @@ int main(int argc, char **argv)
     int installer = 0;
     struct stat startup_file;
     installer = !forever_prefix_init && stat(PW_RUNTIME_LAUNCHER_UNIX, &startup_file) != 0;
+#ifdef PW_RUNTIME_INSTALLER_UNPACK
+    /* The unpacked launcher starts as if an installer had just finished. */
+    if (installer && b1_unpack_installer())
+        b1_wait();
+    installer = 0;
+#else
     if (installer && stat(PW_RUNTIME_INSTALLER_UNIX, &startup_file) && b1_download_installer())
         b1_wait();
+#endif
 #if !PW_RUNTIME_HEADLESS
     title_desktop_installer_mode(installer);
 #endif
