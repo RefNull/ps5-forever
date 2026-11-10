@@ -24,7 +24,7 @@
 #include "wow-channels.h"
 
 #define FOREVER_TUNE_DEFAULT "unwind_cache=on qpc=tsc log_async=on\n"
-#define FOREVER_FG_DEFAULT "fg=off mult=2 flow=1.0 method=auto\n"
+#define FOREVER_FG_DEFAULT "fg=off mult=2 flow=1.0 method=lossless\n"
 #define FOREVER_HUD_DEFAULT "hud=off pos=tl scale=2\n"
 #define FOREVER_MANAGED_STAMP ".forever-managed"
 #define FOREVER_INIT_PENDING ".forever-init-pending"

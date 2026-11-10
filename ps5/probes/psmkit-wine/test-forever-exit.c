@@ -50,6 +50,13 @@ static int forever_menu_rewrite_switch(const char *path, const char *key, int en
     setting_writes++;
     return 0;
 }
+static int forever_menu_set_frame_generation(const char *path, int enabled)
+{
+    (void)path;
+    (void)enabled;
+    assert(!"frame generation is not written on exit");
+    return -1;
+}
 static const char *forever_setting_permission_message(int result)
 {
     assert(!result);

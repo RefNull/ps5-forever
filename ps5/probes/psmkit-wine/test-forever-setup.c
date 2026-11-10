@@ -232,6 +232,8 @@ static void test_write_if_absent(void)
     put("data/prefix/drive_c/keep", "");
     assert(forever_write_if_absent(p, FOREVER_FG_DEFAULT) == 1);
     assert(text_is("data/prefix/drive_c/wineps5-fg.txt", FOREVER_FG_DEFAULT));
+    /* vkd3d-proton takes method=auto as FSR 3 without Lossless.dll */
+    assert(strstr(FOREVER_FG_DEFAULT, " method=lossless\n"));
     put("data/prefix/drive_c/wineps5-fg.txt", "fg=off\n");
     assert(forever_write_if_absent(p, FOREVER_FG_DEFAULT) == 0);
     assert(text_is("data/prefix/drive_c/wineps5-fg.txt", "fg=off\n")); /* the user's file wins */

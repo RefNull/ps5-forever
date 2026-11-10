@@ -721,7 +721,7 @@ static void test_voice_menu(void)
 
 static void test_key_rewrite(void)
 {
-    char path[1024], fg[1024], hdr[1024], hud[1024], mouse[1024], voice[1024];
+    char path[1024], fg[1024], lossless[1024], hdr[1024], hud[1024], mouse[1024], voice[1024];
     int enabled = -1, hdr_enabled = -1, hud_enabled = -1, invert_scroll = -1, voice_enabled = -1;
     enum forever_frame_generation fg_mode = FOREVER_FG_OFF;
 
@@ -741,6 +741,8 @@ static void test_key_rewrite(void)
     assert(!forever_menu_read_frame_generation(path, FOREVER_FG_ON, &fg_mode));
     assert(fg_mode == FOREVER_FG_AUTO);
     make_path(fg, sizeof(fg), "switches/drive_c/independent-fg.txt");
+    make_path(lossless, sizeof(lossless), "switches/drive_c/Lossless.dll");
+    put("switches/drive_c/Lossless.dll", "MZ");
     make_path(hdr, sizeof(hdr), "switches/drive_c/independent-hdr.txt");
     make_path(hud, sizeof(hud), "switches/drive_c/independent-hud.txt");
     make_path(voice, sizeof(voice), "switches/drive_c/independent-voice.txt");
@@ -766,7 +768,7 @@ static void test_key_rewrite(void)
     put("switches/drive_c/independent-hud.txt", "hud=on\n");
     assert(!forever_menu_read_switch(voice, "voice", 0, &voice_enabled) && !voice_enabled);
     put("switches/drive_c/independent-voice.txt", "voice=on device=default\n");
-    assert(forever_menu_read_settings(fg, hdr, hud, mouse, voice,
+    assert(forever_menu_read_settings(fg, lossless, hdr, hud, mouse, voice,
         &fg_mode, &hdr_enabled, &hud_enabled, &invert_scroll, &voice_enabled) == -EINVAL);
     assert(fg_mode == FOREVER_FG_OFF); /* vkd3d-proton runs no FG for an invalid file */
     assert(!hdr_enabled && hud_enabled); /* one bad setting cannot hide the other two */
@@ -774,13 +776,13 @@ static void test_key_rewrite(void)
     assert(invert_scroll); /* bad FG must not hide the independent mouse setting */
     put("switches/drive_c/independent-fg.txt", "fg=on\n");
     put("switches/drive_c/wineps5-mouse.txt", "invert_scroll=on invert_scroll=off\n");
-    assert(forever_menu_read_settings(fg, hdr, hud, mouse, voice,
+    assert(forever_menu_read_settings(fg, lossless, hdr, hud, mouse, voice,
         &fg_mode, &hdr_enabled, &hud_enabled, &invert_scroll, &voice_enabled) == -EINVAL);
     assert(invert_scroll && voice_enabled && hud_enabled && !hdr_enabled); /* invalid: default On */
     assert(forever_menu_rewrite_switch(mouse, "invert_scroll", 1) == -EINVAL);
     assert(text_is("switches/drive_c/wineps5-mouse.txt", "invert_scroll=on invert_scroll=off\n"));
     assert(!unlink(mouse));
-    assert(!forever_menu_read_settings(fg, hdr, hud, mouse, voice,
+    assert(!forever_menu_read_settings(fg, lossless, hdr, hud, mouse, voice,
         &fg_mode, &hdr_enabled, &hud_enabled, &invert_scroll, &voice_enabled));
     assert(invert_scroll); /* no mouse file: On by default */
     assert(!forever_menu_rewrite_switch(voice, "voice", 0));
@@ -800,6 +802,62 @@ static void test_key_rewrite(void)
     make_path(path, sizeof(path), "switches/drive_c/duplicate.txt");
     assert(forever_menu_rewrite_switch(path, "fg", 1) == -EINVAL);
     assert(text_is("switches/drive_c/duplicate.txt", "fg=on fg=off\n"));
+}
+
+/* FSR 3 is never chosen: vkd3d-proton takes method=auto, or none, as FSR 3
+ * without Lossless.dll, so every write pins method=lossless. */
+static void test_frame_generation_lossless_only(void)
+{
+    static struct forever_menu_state menu;
+    struct forever_menu_values values = {FOREVER_FG_OFF, 1, 0, 0, 0};
+    char path[1024], lossless[1024], none[1024], text[FOREVER_MENU_TEXT_BYTES];
+    enum forever_frame_generation fg_mode = FOREVER_FG_OFF;
+    int hdr = -1, hud = -1, invert_scroll = -1, voice = -1;
+
+    make_path(path, sizeof(path), "fg/drive_c/wineps5-fg.txt");
+    make_path(lossless, sizeof(lossless), "fg/drive_c/Lossless.dll");
+    make_path(none, sizeof(none), "fg/drive_c/none.txt");
+    assert(strstr(FOREVER_FG_DEFAULT, "method=lossless") && !strstr(FOREVER_FG_DEFAULT, "auto"));
+
+    put("fg/drive_c/wineps5-fg.txt", "fg=on mult=2 flow=1.0 method=auto\n"); /* older builds */
+    assert(forever_fg_lossless_only(path) == 1);
+    assert(text_is("fg/drive_c/wineps5-fg.txt", "fg=on mult=2 flow=1.0 method=lossless\n"));
+    assert(forever_fg_lossless_only(path) == 0);
+    put("fg/drive_c/wineps5-fg.txt", "method=fsr3 fg=on\n");
+    assert(forever_fg_lossless_only(path) == 1);
+    assert(text_is("fg/drive_c/wineps5-fg.txt", "method=lossless fg=on\n"));
+    put("fg/drive_c/wineps5-fg.txt", "fg=on\n");
+    assert(forever_fg_lossless_only(path) == 1);
+    assert(text_is("fg/drive_c/wineps5-fg.txt", "fg=on\nmethod=lossless\n"));
+    put("fg/drive_c/wineps5-fg.txt", "fg=on method=auto method=fsr3\n");
+    assert(forever_fg_lossless_only(path) == -EINVAL); /* vkd3d-proton refuses it too */
+
+    assert(!unlink(path));
+    assert(!forever_menu_set_frame_generation(path, 1));
+    assert(text_is("fg/drive_c/wineps5-fg.txt", "method=lossless\nfg=on\n"));
+    put("fg/drive_c/wineps5-fg.txt", "fg=on mult=3 method=auto\n");
+    assert(!forever_menu_set_frame_generation(path, 0));
+    assert(text_is("fg/drive_c/wineps5-fg.txt", "fg=off mult=3 method=lossless\n"));
+
+    put("fg/drive_c/wineps5-fg.txt", "fg=on method=lossless\n");
+    assert(!forever_menu_read_settings(path, lossless, none, none, none, none,
+        &fg_mode, &hdr, &hud, &invert_scroll, &voice));
+    assert(fg_mode == FOREVER_FG_UNAVAILABLE); /* no Lossless.dll */
+    put("fg/drive_c/Lossless.dll", "MZ");
+    assert(!forever_menu_read_settings(path, lossless, none, none, none, none,
+        &fg_mode, &hdr, &hud, &invert_scroll, &voice));
+    assert(fg_mode == FOREVER_FG_ON);
+
+    values.frame_generation = FOREVER_FG_UNAVAILABLE;
+    forever_menu_init(&menu);
+    forever_menu_open(&menu, &values);
+    forever_menu_render(&menu, text, sizeof(text));
+    assert(strstr(text, "Frame generation\tNeeds Lossless Scaling\n"));
+    assert(forever_menu_select(&menu).command == FOREVER_MENU_COMMAND_NONE);
+    assert(strstr(menu.status, "Lossless.dll"));
+    assert(forever_menu_click_line(&menu, FOREVER_MENU_LINE_FRAME_GENERATION).command ==
+           FOREVER_MENU_COMMAND_NONE);
+    assert(menu.values.frame_generation == FOREVER_FG_UNAVAILABLE);
 }
 
 static void install_channel(const char *channel, const char *executable)
@@ -1318,6 +1376,7 @@ int main(void)
     char command[320];
     snprintf(root, sizeof(root), "/tmp/forever-menu-test-%ld", (long)getpid());
     test_key_rewrite();
+    test_frame_generation_lossless_only();
     test_voice_download();
     test_voice_resume();
     test_download_redirects();

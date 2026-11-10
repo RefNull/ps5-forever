@@ -96,9 +96,10 @@ static inline int forever_menu_read_frame_generation(
     return 0;
 }
 
+/* Frame generation runs only through the user's own Lossless.dll. */
 static inline int forever_menu_read_settings(
-    const char *frame_generation, const char *hdr, const char *hud, const char *mouse,
-    const char *voice, enum forever_frame_generation *frame_generation_value,
+    const char *frame_generation, const char *lossless, const char *hdr, const char *hud,
+    const char *mouse, const char *voice, enum forever_frame_generation *frame_generation_value,
     int *hdr_value, int *hud_value, int *invert_scroll_value, int *voice_value)
 {
     int first = 0, error;
@@ -110,6 +111,7 @@ static inline int forever_menu_read_settings(
     error = forever_menu_read_frame_generation(
         frame_generation, FOREVER_FG_OFF, frame_generation_value);
     if (error && !first) first = error;
+    if (!forever_exists(lossless)) *frame_generation_value = FOREVER_FG_UNAVAILABLE;
     error = forever_menu_read_switch(hdr, "hdr", 1, hdr_value);
     if (error && !first) first = error;
     error = forever_menu_read_switch(hud, "hud", 0, hud_value);
@@ -121,11 +123,10 @@ static inline int forever_menu_read_settings(
     return first;
 }
 
-static inline int forever_menu_rewrite_switch(const char *path, const char *key, int enabled)
+static inline int forever_menu_rewrite_value(const char *path, const char *key, const char *value)
 {
     char text[FOREVER_MENU_FILE_BYTES], output[FOREVER_MENU_FILE_BYTES + 16], parent[1100];
-    const char *value = enabled ? "on" : "off";
-    size_t value_size = enabled ? 2 : 3, begin = 0, end = 0, output_size, key_size = strlen(key);
+    size_t value_size = strlen(value), begin = 0, end = 0, output_size, key_size = strlen(key);
     ssize_t size = forever_read_file(path, text, sizeof(text));
     int found;
 
@@ -161,6 +162,36 @@ static inline int forever_menu_rewrite_switch(const char *path, const char *key,
     *slash = 0;
     int error = forever_mkdirs(parent);
     return error ? error : forever_write_file(path, output, output_size);
+}
+
+static inline int forever_menu_rewrite_switch(const char *path, const char *key, int enabled)
+{
+    return forever_menu_rewrite_value(path, key, enabled ? "on" : "off");
+}
+
+/* vkd3d-proton reads wineps5-fg.txt live and takes method=auto, or no method,
+ * as FSR 3 when Lossless.dll is missing. Pin method=lossless so FSR 3 never
+ * runs; 1 when the file changed. */
+static inline int forever_fg_lossless_only(const char *path)
+{
+    char text[FOREVER_MENU_FILE_BYTES];
+    size_t begin = 0, end = 0;
+    ssize_t size = forever_read_file(path, text, sizeof(text));
+    int found;
+
+    if (size == -ENOENT) size = 0;
+    else if (size < 0) return (int)size;
+    found = forever_menu_switch_span(text, (size_t)size, "method", &begin, &end);
+    if (found < 0) return found;
+    if (found && end - begin == 8 && !memcmp(text + begin, "lossless", 8)) return 0;
+    found = forever_menu_rewrite_value(path, "method", "lossless");
+    return found ? found : 1;
+}
+
+static inline int forever_menu_set_frame_generation(const char *path, int enabled)
+{
+    int error = forever_fg_lossless_only(path);
+    return error < 0 ? error : forever_menu_rewrite_switch(path, "fg", enabled);
 }
 
 /* Preserve every byte except the single HDROutput digit; append the setting

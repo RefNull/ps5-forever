@@ -1903,6 +1903,8 @@ static int pw_forever_start(void)
             return -1;
         }
     }
+    result = forever_fg_lossless_only(FOREVER_DRIVE_C "/wineps5-fg.txt");
+    io_log("forever: fg method=lossless result=%d", result);
 
     /* Maintenance's supervisor already opened/presented the desktop and
      * started its independent frame thread. This scan stays on the startup
@@ -1985,6 +1987,7 @@ int forever_title_menu_load(struct forever_menu_values *values)
 {
     return forever_menu_read_settings(
         FOREVER_DRIVE_C "/wineps5-fg.txt",
+        FOREVER_DRIVE_C "/Lossless.dll",
         FOREVER_DRIVE_C "/wineps5-hdr-output.txt",
         FOREVER_DRIVE_C "/wineps5-hud.txt",
         FOREVER_DRIVE_C "/wineps5-mouse.txt",
@@ -2907,8 +2910,7 @@ int forever_title_menu_action(enum forever_menu_command command, int enabled)
         if (enabled) return forever_title_voice_enable();
         return forever_menu_rewrite_switch(FOREVER_DRIVE_C "/wineps5-voice.txt", "voice", 0);
     case FOREVER_MENU_COMMAND_SET_FRAME_GENERATION:
-        result = forever_menu_rewrite_switch(
-            FOREVER_DRIVE_C "/wineps5-fg.txt", "fg", enabled);
+        result = forever_menu_set_frame_generation(FOREVER_DRIVE_C "/wineps5-fg.txt", enabled);
         permission_message = forever_setting_permission_message(result);
         if (permission_message) forever_say(permission_message);
 #ifdef FOREVER_MENU_DIAG

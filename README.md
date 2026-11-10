@@ -64,8 +64,8 @@ Fork releases are on the [releases page](https://github.com/RefNull/ps5-forever/
 - A **Battle.net account** with access to the WoW version you want, with an
   **authenticator** enabled (see [Signing in to Battle.net](#signing-in-to-battlenet)).
 - A **DualSense** controller. A USB keyboard also works.
-- An **FTP server** on the console, only to add your own `Lossless.dll` or
-  change settings files by hand. FSR 3 frame generation needs neither.
+- An **FTP server** on the console, only to add your own `Lossless.dll` for
+  frame generation or change settings files by hand.
 
 ## Install
 
@@ -210,13 +210,10 @@ removing Battle.net, close and start Forever Launcher to install it again.
 
 Frame generation shows extra, generated frames between the frames WoW draws,
 so motion looks smoother at up to 120 Hz. It is **off by default**; turn it on
-in the Forever menu (2x). It picks its method by itself:
-
-- With **your own copy of `Lossless.dll`** from
-  [Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/)
-  (version 3.2.2.0, or a build with the same shaders), it uses Lossless Scaling's
-  frame generation. The file is not included and never downloaded.
-- Without it, it uses **AMD FSR 3** frame generation, which needs no extra file.
+in the Forever menu (2x). It needs **your own copy of `Lossless.dll`** from
+[Lossless Scaling](https://store.steampowered.com/app/993090/Lossless_Scaling/)
+(version 3.2.2.0, or a build with the same shaders); the file is not included
+and never downloaded. Without it, the menu shows **Needs Lossless Scaling**.
 
 **VRR**: with VRR set to **Automatic** in the PS5's Screen and Video settings
 and an HDMI 2.1 VRR display, refresh varies while WoW runs. WoW asks for
@@ -239,15 +236,15 @@ Settings live in `/data/forever/prefix/drive_c/wineps5-fg.txt`. Changes apply
 while the game runs, within a second.
 
 ```text
-fg=off method=auto mult=2 flow=1.0
+fg=off mult=2 flow=1.0 method=lossless
 ```
 
 | Option | Values |
 | --- | --- |
 | `fg` | `on`, `off`, or `auto` (on only while WoW renders below 70 fps) |
 | `mult` | `2`, `3` or `4` frames shown for every frame WoW draws |
-| `flow` | `0.25` to `1.0`: lower is cheaper, `1.0` looks best (Lossless Scaling only) |
-| `method` | `auto` (Lossless Scaling when `Lossless.dll` is there, else FSR 3), `lossless`, or `fsr3` |
+| `flow` | `0.25` to `1.0`: lower is cheaper, `1.0` looks best |
+| `method` | `lossless`; the launcher sets it at every start |
 
 The on-screen display settings are in `/data/forever/prefix/drive_c/wineps5-hud.txt`
 (`hud=on` or `hud=off`, `pos=tl`, `scale=2`); the Forever menu changes `hud`
@@ -324,8 +321,8 @@ delete `/data/forever` to remove Battle.net, WoW and your settings.
   `wine: title disk space source=broker` (real) or `source=synthetic` (fallback).
 - **Frame generation does nothing**: check that `wineps5-fg.txt` says `fg=on`.
   Open the Forever menu from Battle.net to turn the performance overlay on; it
-  shows `FG LOSSLESS` or `FG FSR3`. For Lossless Scaling, the file must be
-  exactly `/data/forever/prefix/drive_c/Lossless.dll`.
+  shows `FG LOSSLESS`. The file must be exactly
+  `/data/forever/prefix/drive_c/Lossless.dll`.
 - **Logs**: the console's kernel log (port 3232) shows what the app is doing.
   Lines starting with `forever:` describe setup.
 

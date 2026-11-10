@@ -93,6 +93,7 @@ enum forever_frame_generation
     FOREVER_FG_OFF,
     FOREVER_FG_ON,
     FOREVER_FG_AUTO,
+    FOREVER_FG_UNAVAILABLE, /* no Lossless.dll: nothing to run */
 };
 
 #define FOREVER_ADDON_CHANNELS 64

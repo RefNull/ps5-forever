@@ -317,6 +317,11 @@ struct forever_menu_result forever_menu_select(struct forever_menu_state *menu)
     switch (menu->selected)
     {
     case FOREVER_MENU_FRAME_GENERATION:
+        if (menu->values.frame_generation == FOREVER_FG_UNAVAILABLE)
+        {
+            copy_status(menu, "Frame generation needs your own Lossless.dll; see the README.");
+            return none();
+        }
         return (struct forever_menu_result){
             .command = FOREVER_MENU_COMMAND_SET_FRAME_GENERATION,
             .enabled = menu->values.frame_generation == FOREVER_FG_OFF ? FOREVER_FG_ON :
@@ -864,6 +869,7 @@ static const char *mark(int selected)
 static const char *frame_generation_name(enum forever_frame_generation value)
 {
     if (value == FOREVER_FG_AUTO) return "Auto";
+    if (value == FOREVER_FG_UNAVAILABLE) return "Needs Lossless Scaling";
     return value == FOREVER_FG_ON ? "On" : "Off";
 }
 
