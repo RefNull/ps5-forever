@@ -127,7 +127,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 		$(HOST_OUT)/test-cursor $(HOST_OUT)/test-cursor-hub \
 		$(HOST_OUT)/test-cursor-peer $(HOST_OUT)/test-file-security $(HOST_OUT)/test-videoout-geometry \
 		$(PE_OUT)/audio-tone.exe test-startup-routing test-runtime-profile test-forever-unpack test-build-speed test-pins \
-		../../tools/test-ps5-capture.py
+		../../tools/test-ps5-capture.py ../../tools/test-fs-throttle-probe.py
 	$(HOST_OUT)/test-protocol
 	$(HOST_OUT)/test-supervisor-admission
 	$(HOST_OUT)/test-installer-continue
@@ -189,6 +189,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 	$(HOST_OUT)/test-file-security
 	$(HOST_OUT)/test-videoout-geometry
 	python3 ../../tools/test-ps5-capture.py
+	python3 ../../tools/test-fs-throttle-probe.py
 
 $(HOST_OUT)/test-fd-parking: test-fd-parking.c build-fd-parking-test.py $(WINE_SRC)/server/fd.c
 	python3 build-fd-parking-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"
