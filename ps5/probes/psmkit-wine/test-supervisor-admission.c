@@ -3,6 +3,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <pthread.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,6 +17,10 @@
 struct wine_ps5_title_spawn { char *const *argv; unsigned windows_pid; };
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static struct pw_slot slots[PW_CHILDREN];
+/* All but the last slot held; the AddonForge helper holds the highest of them. */
+#define HELD (PW_CHILDREN - 1)
+#define HELPER (PW_CHILDREN - 2)
+_Static_assert(PW_CHILDREN >= 3, "the reserve needs a helper slot and a free slot");
 static uint64_t generation = 7, addonforge_nonce;
 static int stopping, stop_calls, kill_calls, reap_after_kill, stop_during_wait;
 static int64_t clock_ms, graceful_eof, forced_eof;
@@ -28,7 +33,14 @@ static char pending_addon_error[FOREVER_MENU_STATUS_BYTES];
 static int64_t admission_now_ms(void) { return clock_ms; }
 /* The transport object retains its real clock; only the extracted gate uses this one. */
 #define io_now_ms admission_now_ms
-static void admission_log(const char *format, ...) { (void)format; }
+static char last_log[256];
+static void admission_log(const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    vsnprintf(last_log, sizeof(last_log), format, args);
+    va_end(args);
+}
 #define io_log admission_log
 int sceKernelDebugOutText(int channel, const char *text)
 {
@@ -51,7 +63,7 @@ static int forever_title_addons_action(enum forever_menu_command command, unsign
 }
 static int kill_slot(struct pw_slot *slot)
 {
-    assert(slot == &slots[5] && slot->nonce == addonforge_nonce);
+    assert(slot == &slots[HELPER] && slot->nonce == addonforge_nonce);
     slot->kill_requested = 1;
     kill_calls++;
     if (reap_after_kill) forced_eof = clock_ms + 10;
@@ -66,7 +78,7 @@ static int admission_sleep(const struct timespec *pause, struct timespec *remain
     if ((graceful_eof && clock_ms >= graceful_eof) ||
         (forced_eof && clock_ms >= forced_eof))
     {
-        assert(!pw_slot_release(&slots[5], generation, addonforge_nonce));
+        assert(!pw_slot_release(&slots[HELPER], generation, addonforge_nonce));
         graceful_eof = forced_eof = 0;
     }
     pthread_mutex_unlock(&lock);
@@ -81,7 +93,7 @@ static void fixture(unsigned occupied, int helper)
     memset(slots, 0, sizeof(slots));
     for (unsigned i = 0; i < occupied; i++)
         assert(pw_slot_reserve(slots, generation, i + 10, i + 100) == (int)i);
-    addonforge_nonce = helper ? slots[5].nonce : 0;
+    addonforge_nonce = helper ? slots[HELPER].nonce : 0;
     stopping = stop_calls = kill_calls = reap_after_kill = stop_during_wait = 0;
     clock_ms = graceful_eof = forced_eof = 0;
     pending_addon_kind = 0;
@@ -139,51 +151,65 @@ int main(void)
     char *renderer_path[] = {"wine", "C:\\Program Files (x86)\\Battle.net\\BATTLE.NET.exe",
                              "--log-severity=warning", "--type=renderer", NULL};
 
-    fixture(6, 1);
+    fixture(HELD, 1);
     graceful_eof = 500;
-    assert(admit(renderer) == 5);
+    assert(admit(renderer) == HELPER);
     assert(stop_calls == 1 && !kill_calls && clock_ms == 500);
     assert(!addon_open && strstr(addon_notice, "Close and reopen Add-ons"));
-    assert(occupied_slots() == 6 && slots[5].nonce == 1000);
+    assert(occupied_slots() == HELD && slots[HELPER].nonce == 1000);
     pause_notice_consumer();
 
-    fixture(6, 1);
+    fixture(HELD, 1);
     reap_after_kill = 1;
-    assert(admit(renderer) == 5);
+    assert(admit(renderer) == HELPER);
     assert(stop_calls == 1 && kill_calls == 1 && clock_ms >= 2000 && clock_ms <= 2100);
-    fixture(6, 1);
+    fixture(HELD, 1);
     graceful_eof = 10;
-    assert(admit(renderer_path) == 5 && stop_calls == 1 && !kill_calls);
+    assert(admit(renderer_path) == HELPER && stop_calls == 1 && !kill_calls);
 
-    fixture(6, 1);
+    fixture(HELD, 1);
     assert(admit(renderer) == -1 && errno == EAGAIN);
     assert(stop_calls == 1 && kill_calls == 1 && clock_ms <= 4000);
-    assert(slots[5].occupied && slots[5].nonce == addonforge_nonce); /* no reuse before EOF */
+    assert(slots[HELPER].occupied && slots[HELPER].nonce == addonforge_nonce); /* no reuse before EOF */
 
-    fixture(6, 0);
+    fixture(HELD, 0);
     assert(admit(renderer) == -1 && errno == EAGAIN && !stop_calls && !kill_calls);
-    assert(admit(updater) == 6 && occupied_slots() == 7); /* updater/game reserve is unchanged */
+    assert(admit(updater) == HELD && occupied_slots() == PW_CHILDREN); /* updater/game reserve is unchanged */
 
-    fixture(6, 1);
+    fixture(HELD, 1);
     addonforge_nonce++; /* an old helper identity must never evict a reused slot */
     assert(admit(renderer) == -1 && errno == EAGAIN && !stop_calls && !kill_calls);
-    fixture(6, 1);
+    fixture(HELD, 1);
     assert(admit(utility) == -1 && errno == EAGAIN && !stop_calls && !kill_calls);
     assert(admit(renderer_extra) == -1 && errno == EAGAIN && !stop_calls && !kill_calls);
     assert(admit(other_renderer) == -1 && errno == EAGAIN && !stop_calls && !kill_calls);
 
-    fixture(5, 0);
-    assert(admit(core) == 5 && addonforge_nonce == 1000);
-    fixture(6, 0);
-    assert(admit(core) == -1 && errno == EAGAIN && occupied_slots() == 6);
-    assert(admit(other_core) == 6 && !addonforge_nonce); /* fixed managed path only */
+    fixture(HELPER, 0);
+    assert(admit(core) == HELPER && addonforge_nonce == 1000);
+    fixture(HELD, 0);
+    assert(admit(core) == -1 && errno == EAGAIN && occupied_slots() == HELD);
+    assert(admit(other_core) == HELD && !addonforge_nonce); /* fixed managed path only */
 
-    fixture(5, 0);
-    assert(admit(renderer) == 5 && !stop_calls && !kill_calls && !clock_ms);
-    fixture(6, 1);
+    fixture(HELPER, 0);
+    assert(admit(renderer) == HELPER && !stop_calls && !kill_calls && !clock_ms);
+    fixture(HELD, 1);
     stop_during_wait = 1;
     assert(admit(renderer) == -1 && errno == EAGAIN && !kill_calls);
 
-    puts("supervisor admission: helper yield/forced EOF, stale identity, reserve and shutdown PASS");
+    /* The console refuses the child: the slot is free again, the log names the code. */
+    struct wine_ps5_title_spawn refused = {.argv = updater, .windows_pid = 200};
+    fixture(HELPER, 0);
+    assert(admit(updater) == HELPER);
+    slots[HELPER].handle = (int32_t)0x80aa0008;
+    assert(refuse_local_process(HELPER, 1000, &refused) == EAGAIN);
+    assert(!slots[HELPER].occupied && occupied_slots() == HELPER);
+    assert(strstr(last_log, "reason=system-limit code=0x80aa0008") && strstr(last_log, "Battle.net.exe"));
+    assert(admit(updater) == HELPER);
+    slots[HELPER].handle = -1;
+    assert(refuse_local_process(HELPER, 1000, &refused) == EIO && !slots[HELPER].occupied);
+    assert(strstr(last_log, "reason=spawn-failed code=0xffffffff"));
+
+    puts("supervisor admission: helper yield/forced EOF, stale identity, reserve, local-process refusal "
+         "and shutdown PASS");
     return 0;
 }

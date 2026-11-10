@@ -227,6 +227,7 @@ static void p1c_fault_bootstrap(void)
 
 static void p1c_slots(void)
 {
+    _Static_assert(PW_CHILDREN == 7, "the console allows the title seven local processes");
     struct pw_slot slots[PW_CHILDREN] = {0};
     int pairs[PW_CHILDREN][2], before = open_descriptors();
     for (unsigned int i = 0; i < PW_CHILDREN; ++i)
@@ -457,6 +458,6 @@ int main(void)
     p1c_validation(); p1c_slots(); p1c_transport();
     p1c_stale_rejection(); p1c_fault_bootstrap(); p1c_poison_and_shutdown();
     spawn_log_redaction();
-    puts("psmkit-wine host: trailing argv identity, bootstrap v3/stale errno, fault generation-only/ESTALE, HELLO, seven-slot EOF/reuse, SIGNAL/poisoning, bounded shutdown policy PASS; Wine NOT RUN");
+    printf("psmkit-wine host: trailing argv identity, bootstrap v3/stale errno, fault generation-only/ESTALE, HELLO, %d-slot EOF/reuse, SIGNAL/poisoning, bounded shutdown policy PASS; Wine NOT RUN\n", PW_CHILDREN);
     return 0;
 }

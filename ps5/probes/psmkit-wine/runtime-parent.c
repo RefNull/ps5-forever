@@ -1699,8 +1699,8 @@ int pw_supervisor_init(void)
 }
 /* A Chromium subprocess (renderer, GPU, utility: "--type=" in its command
  * line), which may not take the last free slot: Battle.net's own restarter
- * after a self-update ("Battle.net.exe --updatepid=") was refused with all
- * seven slots held, mostly by renderers, and the launcher never came back
+ * after a self-update ("Battle.net.exe --updatepid=") was refused with
+ * every slot held, mostly by renderers, and the launcher never came back
  * (run 20261009-b1-installed-41). The optional AddonForge child must yield
  * before this reserve rejects a renderer: CEF can CHECK on the missing frame. */
 static int is_chromium_subprocess(const struct wine_ps5_title_spawn *spawn)
@@ -1795,6 +1795,21 @@ static int reserve_spawn_slot(const struct wine_ps5_title_spawn *spawn, uint64_t
 #endif
     return index;
 }
+/* The console's local-process service refused the child: nothing started, so
+ * the slot is free again at once. 0x80aa0008 is its count limit (the 8th with
+ * 7 alive, measured by PS5_MihawkOS for the non-PsmKit call): a full table,
+ * EAGAIN as for a reserve refusal. Any other code is EIO. Caller holds lock. */
+static int refuse_local_process(int index, uint64_t nonce, const struct wine_ps5_title_spawn *spawn)
+{
+    const int32_t limit_reached = (int32_t)0x80aa0008;
+    int32_t code = slots[index].handle;
+    char command[160];
+    pw_slot_release(&slots[index], generation, nonce);
+    io_log("p1c supervisor refuse reason=%s code=%#x occupied=%u windows_pid=%u command=%s",
+           code == limit_reached ? "system-limit" : "spawn-failed", (unsigned int)code, occupied_slots(),
+           spawn->windows_pid, spawn_command(spawn, command, sizeof(command)));
+    return code == limit_reached ? EAGAIN : EIO;
+}
 int pw_supervisor_spawn(const struct wine_ps5_title_spawn *spawn)
 {
     struct pw_p1c_bootstrap bootstrap;
@@ -1822,7 +1837,11 @@ int pw_supervisor_spawn(const struct wine_ps5_title_spawn *spawn)
     int64_t deadline = io_now_ms() + PW_OVERALL_MS;
     slots[index].handle = sceSystemServiceAddLocalProcessForPsmKit(child_path, argv, &param);
     close(pair[1]); pair[1] = -1;
-    if (slots[index].handle < 0) { error = EIO; goto failed; }
+    if (slots[index].handle < 0)
+    {
+        error = refuse_local_process(index, nonce, spawn);
+        goto complete;
+    }
     int fd = slots[index].control;
 #ifdef PW_P1C_FAULT_INJECTION
     if (pw_p1c_bootstrap_fault(&bootstrap, spawn->argv))

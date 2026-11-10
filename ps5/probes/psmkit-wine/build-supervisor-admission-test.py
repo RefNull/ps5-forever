@@ -24,7 +24,7 @@ def main():
     functions += module.definition(here / 'native-entry.c', 'forever_title_addons_yield') + '\n\n'
     functions += '\n\n'.join(module.definition(here / 'runtime-parent.c', name) for name in (
         'occupied_slots', 'is_chromium_subprocess', 'spawn_command', 'is_addonforge_core',
-        'is_battlenet_renderer', 'reserve_spawn_slot'))
+        'is_battlenet_renderer', 'reserve_spawn_slot', 'refuse_local_process'))
     (args.output.parent / 'supervisor-admission.inc').write_text(functions + '\n')
     command = shlex.split(args.cc) + [
         '-std=gnu11', '-O2', '-g', '-Wall', '-Wextra', '-Werror', '-pthread',
