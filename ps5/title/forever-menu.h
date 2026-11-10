@@ -17,14 +17,15 @@
 /* Text rows used by the compositor and mouse hit testing. */
 #define FOREVER_MENU_LINE_FRAME_GENERATION 2
 #define FOREVER_MENU_LINE_HDR 3
-#define FOREVER_MENU_LINE_HUD 4
-#define FOREVER_MENU_LINE_INVERT_SCROLL 5
-#define FOREVER_MENU_LINE_VOICE 6
-#define FOREVER_MENU_LINE_ADDONS 8
-#define FOREVER_MENU_LINE_REINSTALL 10
-#define FOREVER_MENU_LINE_UNINSTALL 11
-#define FOREVER_MENU_LINE_CLOSE 13
-#define FOREVER_MENU_LINE_EXIT 14
+#define FOREVER_MENU_LINE_FRAME_RATE 4
+#define FOREVER_MENU_LINE_HUD 5
+#define FOREVER_MENU_LINE_INVERT_SCROLL 6
+#define FOREVER_MENU_LINE_VOICE 7
+#define FOREVER_MENU_LINE_ADDONS 9
+#define FOREVER_MENU_LINE_REINSTALL 11
+#define FOREVER_MENU_LINE_UNINSTALL 12
+#define FOREVER_MENU_LINE_CLOSE 14
+#define FOREVER_MENU_LINE_EXIT 15
 #define FOREVER_MENU_LINE_CANCEL 7
 #define FOREVER_MENU_LINE_CONFIRM 8
 #define FOREVER_MENU_LINE_ADDON_TABS 2
@@ -49,6 +50,7 @@ enum forever_menu_item
 {
     FOREVER_MENU_FRAME_GENERATION,
     FOREVER_MENU_HDR,
+    FOREVER_MENU_FRAME_RATE,
     FOREVER_MENU_HUD,
     FOREVER_MENU_INVERT_SCROLL,
     FOREVER_MENU_VOICE,
@@ -67,6 +69,7 @@ enum forever_menu_command
     FOREVER_MENU_COMMAND_SET_HUD,
     FOREVER_MENU_COMMAND_SET_INVERT_SCROLL,
     FOREVER_MENU_COMMAND_SET_VOICE,
+    FOREVER_MENU_COMMAND_SET_FRAME_RATE, /* enabled: the new choice index */
     FOREVER_MENU_COMMAND_REINSTALL,
     FOREVER_MENU_COMMAND_UNINSTALL,
     FOREVER_MENU_COMMAND_CLOSE,
@@ -95,6 +98,10 @@ enum forever_frame_generation
     FOREVER_FG_AUTO,
     FOREVER_FG_UNAVAILABLE, /* no Lossless.dll: nothing to run */
 };
+
+/* Frame-rate cap choices: Off, 30, 60, 120, in the display file's order
+ * (forever-setup.h, enum forever_frame_rate). */
+#define FOREVER_FRAME_RATE_CHOICES 4
 
 #define FOREVER_ADDON_CHANNELS 64
 struct forever_addon_install
@@ -168,6 +175,7 @@ struct forever_menu_values
     int hud;
     int invert_scroll;
     int voice;
+    int frame_rate; /* choice index, 0 is Off */
 };
 
 struct forever_menu_result

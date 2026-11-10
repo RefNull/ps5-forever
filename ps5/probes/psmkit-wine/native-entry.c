@@ -1985,7 +1985,8 @@ void title_desktop_menu_status(const char *, int);
 
 int forever_title_menu_load(struct forever_menu_values *values)
 {
-    return forever_menu_read_settings(
+    struct forever_display display;
+    int error = forever_menu_read_settings(
         FOREVER_DRIVE_C "/wineps5-fg.txt",
         FOREVER_DRIVE_C "/Lossless.dll",
         FOREVER_DRIVE_C "/wineps5-hdr-output.txt",
@@ -1994,6 +1995,9 @@ int forever_title_menu_load(struct forever_menu_values *values)
         FOREVER_DRIVE_C "/wineps5-voice.txt",
         &values->frame_generation, &values->hdr, &values->hud,
         &values->invert_scroll, &values->voice);
+    int display_error = forever_display_read(FOREVER_DRIVE_C "/" FOREVER_DISPLAY_FILE, &display);
+    values->frame_rate = (int)display.frame_rate;
+    return error ? error : display_error;
 }
 
 void title_desktop_voice_status(const char *, int, int);
@@ -2917,6 +2921,17 @@ int forever_title_menu_action(enum forever_menu_command command, int enabled)
         io_log("menu diag action file=" FOREVER_DRIVE_C
                "/wineps5-fg.txt value=fg=%s result=%d",
                enabled ? "on" : "off", result);
+#endif
+        return result;
+    case FOREVER_MENU_COMMAND_SET_FRAME_RATE:
+        result = forever_menu_set_frame_rate(FOREVER_DRIVE_C "/" FOREVER_DISPLAY_FILE, enabled);
+        permission_message = forever_setting_permission_message(result);
+        if (permission_message) forever_say(permission_message);
+#ifdef FOREVER_MENU_DIAG
+        io_log("menu diag action file=" FOREVER_DRIVE_C "/" FOREVER_DISPLAY_FILE
+               " value=fps=%s result=%d",
+               forever_frame_rate_token((unsigned)enabled) ?
+                   forever_frame_rate_token((unsigned)enabled) : "invalid", result);
 #endif
         return result;
     case FOREVER_MENU_COMMAND_SET_HUD:
@@ -4113,9 +4128,17 @@ int main(int argc, char **argv)
     if (hdr_output && enable_hdr && !strcmp(enable_hdr, "1") &&
         setenv("DXVK_HDR", "1", 1)) return 1;
     const char *dxvk_hdr = getenv("DXVK_HDR");
-    fprintf(stderr, "title gpu env: hdr_output=%s PROTON_ENABLE_HDR=%s DXVK_HDR=%s\n",
+    /* The menu's display settings: read once, here, at game start. */
+    struct forever_display display;
+    int display_read = forever_display_read(FOREVER_DRIVE_C "/" FOREVER_DISPLAY_FILE, &display);
+    if (forever_display_environment(&display)) return 1;
+    const char *frame_rate = getenv("VKD3D_FRAME_RATE"), *dxvk_config = getenv("DXVK_CONFIG");
+    fprintf(stderr, "title gpu env: hdr_output=%s PROTON_ENABLE_HDR=%s DXVK_HDR=%s "
+            "display_file=%d fps=%s VKD3D_FRAME_RATE=%s DXVK_CONFIG=%s\n",
             hdr_output ? "on" : "off",
-            enable_hdr ? enable_hdr : "(unset)", dxvk_hdr ? dxvk_hdr : "(unset)");
+            enable_hdr ? enable_hdr : "(unset)", dxvk_hdr ? dxvk_hdr : "(unset)",
+            display_read, forever_frame_rate_token(display.frame_rate),
+            frame_rate ? frame_rate : "(unset)", dxvk_config ? dxvk_config : "(unset)");
     fprintf(stderr, "title gpu diagnostics: present_mode=%s videoout_stats=%s queue_profile=%s "
             "cpu_profile=%s vkd3d_config=%s hdr_mode=%s query_trace=%s\n",
             getenv("VKD3D_SWAPCHAIN_PRESENT_MODE") ? getenv("VKD3D_SWAPCHAIN_PRESENT_MODE") : "(game)",

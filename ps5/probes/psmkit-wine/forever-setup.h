@@ -16,6 +16,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -175,6 +176,158 @@ static inline ssize_t forever_read_file(const char *path, char *buffer, size_t s
     close(fd);
     buffer[used] = 0;
     return (ssize_t)used;
+}
+
+static inline int forever_menu_space(char c)
+{
+    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+}
+
+/* Find one whitespace-delimited key=value token. Duplicate keys are refused. */
+static inline int forever_menu_switch_span(const char *text, size_t size, const char *key,
+                                            size_t *begin, size_t *end)
+{
+    size_t key_size = strlen(key);
+    int found = 0;
+    for (size_t i = 0; i < size;)
+    {
+        size_t token;
+        while (i < size && forever_menu_space(text[i])) i++;
+        token = i;
+        while (i < size && !forever_menu_space(text[i])) i++;
+        if (i - token > key_size && text[token + key_size] == '=' &&
+            !memcmp(text + token, key, key_size))
+        {
+            if (found) return -EINVAL;
+            found = 1;
+            *begin = token + key_size + 1;
+            *end = i;
+        }
+    }
+    return found;
+}
+
+/* C:\wineps5-display.txt: the game role's display settings, written by the
+ * Forever menu and read at each game start (fps=off|30|60|120). A missing
+ * file or key means Off; a duplicate key or an unknown value is refused and
+ * also means Off. */
+#define FOREVER_DISPLAY_FILE "wineps5-display.txt"
+#define FOREVER_DISPLAY_BYTES 4096
+
+enum forever_frame_rate
+{
+    FOREVER_FPS_OFF,
+    FOREVER_FPS_30,
+    FOREVER_FPS_60,
+    FOREVER_FPS_120,
+    FOREVER_FPS_COUNT,
+};
+
+static inline const char *forever_frame_rate_token(unsigned value)
+{
+    static const char *const tokens[FOREVER_FPS_COUNT] = {"off", "30", "60", "120"};
+    return value < FOREVER_FPS_COUNT ? tokens[value] : NULL;
+}
+
+static inline unsigned forever_frame_rate_fps(unsigned value)
+{
+    static const unsigned fps[FOREVER_FPS_COUNT] = {0, 30, 60, 120};
+    return value < FOREVER_FPS_COUNT ? fps[value] : 0;
+}
+
+struct forever_display
+{
+    unsigned frame_rate; /* enum forever_frame_rate */
+};
+
+/* The index of key's value among token(0..count-1). Absent: 0 and *index
+ * unchanged; a duplicate key or an unknown value: -EINVAL, *index unchanged. */
+static inline int forever_display_choice(const char *text, size_t size, const char *key,
+                                         const char *(*token)(unsigned), unsigned count,
+                                         unsigned *index)
+{
+    size_t begin = 0, end = 0;
+    int found = forever_menu_switch_span(text, size, key, &begin, &end);
+    if (found <= 0) return found;
+    for (unsigned i = 0; i < count; i++)
+        if (strlen(token(i)) == end - begin && !memcmp(text + begin, token(i), end - begin))
+        {
+            *index = i;
+            return 0;
+        }
+    return -EINVAL;
+}
+
+/* Every value is valid on return; the result is 0 or the first error. */
+static inline int forever_display_read(const char *path, struct forever_display *display)
+{
+    char text[FOREVER_DISPLAY_BYTES];
+    ssize_t size;
+    display->frame_rate = FOREVER_FPS_OFF;
+    size = forever_read_file(path, text, sizeof(text));
+    if (size == -ENOENT) return 0;
+    if (size < 0) return (int)size;
+    return forever_display_choice(text, (size_t)size, "fps", forever_frame_rate_token,
+                                  FOREVER_FPS_COUNT, &display->frame_rate);
+}
+
+/* 1 when one ;-separated DXVK_CONFIG entry sets key. */
+static inline int forever_dxvk_entry_is(const char *entry, size_t size, const char *key)
+{
+    size_t key_size = strlen(key), at = 0;
+    while (at < size && (entry[at] == ' ' || entry[at] == '\t')) at++;
+    if (size - at < key_size || memcmp(entry + at, key, key_size)) return 0;
+    at += key_size;
+    while (at < size && (entry[at] == ' ' || entry[at] == '\t')) at++;
+    return at < size && entry[at] == '=';
+}
+
+/* DXVK_CONFIG for a cap of fps (0: none): the cap's entries first, so no
+ * [app.exe] section in the rest can scope them, then the existing entries
+ * except earlier caps. DXVK splits the variable on ';'. */
+static inline int forever_display_dxvk_config(const char *existing, unsigned fps,
+                                              char *out, size_t size)
+{
+    int length = fps ? snprintf(out, size, "dxgi.maxFrameRate=%u;d3d9.maxFrameRate=%u", fps, fps)
+                     : snprintf(out, size, "%s", "");
+    size_t used;
+    if (length < 0 || (size_t)length >= size) return -ENAMETOOLONG;
+    used = (size_t)length;
+    for (const char *at = existing ? existing : ""; *at;)
+    {
+        const char *end = strchr(at, ';');
+        size_t entry = end ? (size_t)(end - at) : strlen(at);
+        int blank = 1;
+        for (size_t i = 0; i < entry; i++)
+            if (at[i] != ' ' && at[i] != '\t') blank = 0;
+        if (!blank && !forever_dxvk_entry_is(at, entry, "dxgi.maxFrameRate") &&
+            !forever_dxvk_entry_is(at, entry, "d3d9.maxFrameRate"))
+        {
+            if (used + (used ? 1 : 0) + entry >= size) return -ENAMETOOLONG;
+            if (used) out[used++] = ';';
+            memcpy(out + used, at, entry);
+            used += entry;
+            out[used] = 0;
+        }
+        at += entry + (end ? 1 : 0);
+    }
+    return 0;
+}
+
+/* The game role's environment for the display settings. Off unsets what a
+ * cap set, so a value inherited across LoadExec never outlives the setting.
+ * 0 or -errno. */
+static inline int forever_display_environment(const struct forever_display *display)
+{
+    char value[16], config[1024];
+    unsigned fps = forever_frame_rate_fps(display->frame_rate);
+    int error;
+    snprintf(value, sizeof(value), "%u", fps);
+    if (fps ? setenv("VKD3D_FRAME_RATE", value, 1) : unsetenv("VKD3D_FRAME_RATE")) return -errno;
+    if ((error = forever_display_dxvk_config(getenv("DXVK_CONFIG"), fps, config, sizeof(config))))
+        return error;
+    if (config[0] ? setenv("DXVK_CONFIG", config, 1) : unsetenv("DXVK_CONFIG")) return -errno;
+    return 0;
 }
 
 /* Copy between already-open descriptors. Record the failed I/O operation. */

@@ -16,34 +16,8 @@
 #define FOREVER_MENU_FILE_BYTES 16384
 #define FOREVER_HDR_OUTPUT_DEFAULT "hdr=on\n"
 
-static inline int forever_menu_space(char c)
-{
-    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
-}
-
-/* Find one whitespace-delimited key=value token. Duplicate keys are refused. */
-static inline int forever_menu_switch_span(const char *text, size_t size, const char *key,
-                                            size_t *begin, size_t *end)
-{
-    size_t key_size = strlen(key);
-    int found = 0;
-    for (size_t i = 0; i < size;)
-    {
-        size_t token;
-        while (i < size && forever_menu_space(text[i])) i++;
-        token = i;
-        while (i < size && !forever_menu_space(text[i])) i++;
-        if (i - token > key_size && text[token + key_size] == '=' &&
-            !memcmp(text + token, key, key_size))
-        {
-            if (found) return -EINVAL;
-            found = 1;
-            *begin = token + key_size + 1;
-            *end = i;
-        }
-    }
-    return found;
-}
+_Static_assert(FOREVER_FRAME_RATE_CHOICES == FOREVER_FPS_COUNT,
+               "menu rows and display-file tokens list the same frame-rate caps");
 
 static inline int forever_menu_read_switch(const char *path, const char *key, int fallback,
                                             int *enabled)
@@ -192,6 +166,13 @@ static inline int forever_menu_set_frame_generation(const char *path, int enable
 {
     int error = forever_fg_lossless_only(path);
     return error < 0 ? error : forever_menu_rewrite_switch(path, "fg", enabled);
+}
+
+/* The menu row's index is the display file's token index. */
+static inline int forever_menu_set_frame_rate(const char *path, int value)
+{
+    const char *token = value < 0 ? NULL : forever_frame_rate_token((unsigned)value);
+    return token ? forever_menu_rewrite_value(path, "fps", token) : -EINVAL;
 }
 
 /* Preserve every byte except the single HDROutput digit; append the setting

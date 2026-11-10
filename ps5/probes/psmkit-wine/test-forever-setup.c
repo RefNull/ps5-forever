@@ -1047,6 +1047,74 @@ static void test_wow_config(void)
 
 /* A prefix whose first wineboot never finished lacks the Program Files
  * folders; the Battle.net installer rejects its default location then. */
+static int env_is(const char *name, const char *value)
+{
+    const char *actual = getenv(name);
+    return value ? actual && !strcmp(actual, value) : !actual;
+}
+
+/* C:\wineps5-display.txt and the game role's environment built from it. */
+static void test_display_settings(void)
+{
+    char p[1024], config[128];
+    struct forever_display display = {FOREVER_FPS_60};
+
+    path(p, "display/drive_c/" FOREVER_DISPLAY_FILE);
+    assert(!forever_display_read(p, &display) && display.frame_rate == FOREVER_FPS_OFF);
+    static const struct { const char *text; int error; unsigned frame_rate; } cases[] = {
+        {"fps=off\n", 0, FOREVER_FPS_OFF},
+        {"fps=30\n", 0, FOREVER_FPS_30},
+        {"res=auto fps=60\n", 0, FOREVER_FPS_60},
+        {"fps=120", 0, FOREVER_FPS_120},
+        {"other=1\n", 0, FOREVER_FPS_OFF},
+        {"fps=45\n", -EINVAL, FOREVER_FPS_OFF},      /* not a menu value */
+        {"fps=60fps\n", -EINVAL, FOREVER_FPS_OFF},
+        {"fps=\n", -EINVAL, FOREVER_FPS_OFF},
+        {"fps=30 fps=60\n", -EINVAL, FOREVER_FPS_OFF}, /* duplicate */
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+    {
+        put("display/drive_c/" FOREVER_DISPLAY_FILE, cases[i].text);
+        display.frame_rate = FOREVER_FPS_120;
+        assert(forever_display_read(p, &display) == cases[i].error);
+        assert(display.frame_rate == cases[i].frame_rate);
+    }
+    assert(forever_frame_rate_fps(FOREVER_FPS_OFF) == 0 && forever_frame_rate_fps(FOREVER_FPS_30) == 30 &&
+           forever_frame_rate_fps(FOREVER_FPS_60) == 60 && forever_frame_rate_fps(FOREVER_FPS_120) == 120);
+    assert(!forever_frame_rate_token(FOREVER_FPS_COUNT) && !forever_frame_rate_fps(FOREVER_FPS_COUNT));
+
+    /* DXVK splits DXVK_CONFIG on ';'. The cap comes first; earlier caps go. */
+    assert(!forever_display_dxvk_config(NULL, 60, config, sizeof(config)));
+    assert(!strcmp(config, "dxgi.maxFrameRate=60;d3d9.maxFrameRate=60"));
+    assert(!forever_display_dxvk_config(NULL, 0, config, sizeof(config)) && !config[0]);
+    assert(!forever_display_dxvk_config("dxgi.maxFrameRate=30; d3d9.maxFrameRate = 30;"
+                                        "dxgi.syncInterval=1;;[x.exe]", 120,
+                                        config, sizeof(config)));
+    assert(!strcmp(config, "dxgi.maxFrameRate=120;d3d9.maxFrameRate=120;dxgi.syncInterval=1;[x.exe]"));
+    assert(!forever_display_dxvk_config("dxgi.maxFrameRateX=1;d3d9.maxFrameRate=30", 0,
+                                        config, sizeof(config)));
+    assert(!strcmp(config, "dxgi.maxFrameRateX=1"));
+    assert(forever_display_dxvk_config(NULL, 120, config, 20) == -ENAMETOOLONG);
+
+    assert(!unsetenv("VKD3D_FRAME_RATE") && !unsetenv("DXVK_CONFIG"));
+    display.frame_rate = FOREVER_FPS_OFF;
+    assert(!forever_display_environment(&display)); /* Off sets nothing */
+    assert(env_is("VKD3D_FRAME_RATE", NULL) && env_is("DXVK_CONFIG", NULL));
+    display.frame_rate = FOREVER_FPS_60;
+    assert(!forever_display_environment(&display));
+    assert(env_is("VKD3D_FRAME_RATE", "60"));
+    assert(env_is("DXVK_CONFIG", "dxgi.maxFrameRate=60;d3d9.maxFrameRate=60"));
+    display.frame_rate = FOREVER_FPS_30; /* a value inherited across LoadExec is replaced */
+    assert(!forever_display_environment(&display));
+    assert(env_is("VKD3D_FRAME_RATE", "30"));
+    assert(env_is("DXVK_CONFIG", "dxgi.maxFrameRate=30;d3d9.maxFrameRate=30"));
+    assert(!setenv("DXVK_CONFIG", "dxgi.maxFrameRate=30;d3d9.maxFrameRate=30;dxvk.hud=fps", 1));
+    display.frame_rate = FOREVER_FPS_OFF;
+    assert(!forever_display_environment(&display));
+    assert(env_is("VKD3D_FRAME_RATE", NULL) && env_is("DXVK_CONFIG", "dxvk.hud=fps"));
+    assert(!unsetenv("DXVK_CONFIG"));
+}
+
 static void test_standard_folders(void)
 {
     char prefix[1024], dir[1024];
@@ -1213,6 +1281,7 @@ int main(int argc, char **argv)
     test_managed_manifest_guards();
     test_managed_repair_log_cap();
     test_wow_config();
+    test_display_settings();
     test_standard_folders();
     test_permission_message();
 cleanup:;

@@ -790,7 +790,7 @@ static void close_menu(void)
 
 static void open_menu(void)
 {
-    struct forever_menu_values values = {FOREVER_FG_OFF, 1, 0, 1, 0};
+    struct forever_menu_values values = {FOREVER_FG_OFF, 1, 0, 1, 0, 0};
     int error;
     compositor_hint_stop();
     menu_hint_started = 1;
@@ -1091,7 +1091,7 @@ static int desktop_open(void)
     /* The desktop's stderr does not reach the console log. */
     io_log("input user=%d status=%#x %s", user, result, input_describe());
     pointer_init(DISPLAY_WIDTH, DISPLAY_HEIGHT);
-    struct forever_menu_values values = {FOREVER_FG_OFF, 1, 0, 1, 0};
+    struct forever_menu_values values = {FOREVER_FG_OFF, 1, 0, 1, 0, 0};
     forever_title_menu_load(&values);
     pointer_set_invert_scroll(values.invert_scroll);
     forever_menu_init(&menu);

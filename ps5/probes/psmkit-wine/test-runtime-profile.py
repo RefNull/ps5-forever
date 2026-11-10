@@ -113,6 +113,14 @@ assert 'result = pw_forever_sync_managed();' in sync_stage
 assert 'if (result < 0)' in sync_stage.split('result = pw_forever_sync_managed();', 1)[1]
 assert 'return -1;' in sync_stage.split('io_log("forever: app-owned prefix files', 1)[1]
 assert 'forever: prefix sync checked=%u hashed=%u repaired=%u' in native_startup
+# The menu's display settings reach games only: the GPU role reads
+# C:\wineps5-display.txt once at start and logs what it set.
+gpu_environment = native_startup.split('if (native_runtime.payload_spawn', 1)[1].split(
+    '#if PW_RUNTIME_GPU', 1)[1].split('#else', 1)[0]
+assert 'forever_display_read(FOREVER_DRIVE_C "/" FOREVER_DISPLAY_FILE, &display)' in gpu_environment
+assert 'if (forever_display_environment(&display)) return 1;' in gpu_environment
+assert 'VKD3D_FRAME_RATE=%s DXVK_CONFIG=%s' in gpu_environment
+assert 'forever_display_environment' not in common_environment
 # Only intercepted Play commands publish launch state. Replaying/falling back
 # must not turn a synthesized direct command into a purported Play record.
 assert 'pw_game_record_launch(FOREVER_STATE, (char **)game_wire.argv + 7,' in native_startup

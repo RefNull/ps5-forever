@@ -156,6 +156,8 @@ keyboard. Use the D-pad and Cross; press Circle or Options at the top level to
 close, or click with a mouse. The menu can:
 
 - turn frame generation, HDR and the performance overlay on or off;
+- set a **Frame rate cap** for games: Off (the game decides), 30, 60 or 120 fps
+  (120 needs a 120 Hz TV); a game's own lower cap still applies;
 - turn **Invert mouse scroll** on or off (USB mouse wheel only; on by default);
 - turn **Voice-to-Text** On/Off (first use downloads a **190 MB speech model**);
 - browse, install, update and remove add-ons for the selected WoW version;
@@ -203,8 +205,11 @@ other sources work without one.
 
 If frame generation currently uses `fg=auto`, selecting it turns it off;
 selecting it again turns it on. Frame generation and the performance overlay
-use their live settings files; HDR applies the next time WoW starts. After
-removing Battle.net, close and start Forever Launcher to install it again.
+use their live settings files; HDR and the frame rate cap apply the next time
+a game starts. The cap is `fps=` in `C:\wineps5-display.txt` and reaches
+Direct3D 12 games through vkd3d-proton and Direct3D 9 to 11 games through
+DXVK. After removing Battle.net, close and start Forever Launcher to install it
+again.
 
 ## Frame generation
 

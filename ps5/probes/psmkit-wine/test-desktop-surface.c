@@ -453,11 +453,11 @@ static void write_addon_preview(const char *name)
 static void test_menu_overlay(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_AUTO, 1, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_AUTO, 1, 0, 0, 0, 0};
     static struct forever_addon_snapshot snapshot = {0};
     struct display_rect panel, title = {0}, selected = {0}, hdr = {0};
     struct display_rect fg_value = {0}, hdr_value = {0}, hud_value = {0}, addons_value = {0};
-    struct display_rect mouse_value = {0}, voice_value = {0};
+    struct display_rect mouse_value = {0}, voice_value = {0}, fps_value = {0};
     struct display_rect close_row = {0}, exit_row = {0}, cancel = {0}, confirm = {0};
     struct display_rect addon_row = {0}, addon_value = {0}, hint = {0}, status = {0}, query_line = {0};
     char text[FOREVER_MENU_TEXT_BYTES];
@@ -530,11 +530,13 @@ static void test_menu_overlay(void)
           FOREVER_MENU_LINE_EXIT, "mouse hit testing reaches the final Exit Battle.net row");
     check(compositor_menu_value_bounds(FOREVER_MENU_LINE_FRAME_GENERATION, &fg_value) &&
           compositor_menu_value_bounds(FOREVER_MENU_LINE_HDR, &hdr_value) &&
+          compositor_menu_value_bounds(FOREVER_MENU_LINE_FRAME_RATE, &fps_value) &&
           compositor_menu_value_bounds(FOREVER_MENU_LINE_HUD, &hud_value) &&
           compositor_menu_value_bounds(FOREVER_MENU_LINE_INVERT_SCROLL, &mouse_value) &&
           compositor_menu_value_bounds(FOREVER_MENU_LINE_VOICE, &voice_value) &&
           compositor_menu_value_bounds(FOREVER_MENU_LINE_ADDONS, &addons_value) &&
-          fg_value.right == hdr_value.right && hdr_value.right == hud_value.right &&
+          fg_value.right == hdr_value.right && hdr_value.right == fps_value.right &&
+          fps_value.right == hud_value.right &&
           hud_value.right == mouse_value.right && mouse_value.right == voice_value.right &&
           voice_value.right == addons_value.right,
           "item, mouse scroll and voice values share one right-aligned column");

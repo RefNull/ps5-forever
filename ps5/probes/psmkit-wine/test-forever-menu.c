@@ -640,7 +640,7 @@ static void test_download_redirects(void)
 static void test_mouse_scroll_menu(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0, 0};
     struct forever_menu_result result;
     char text[FOREVER_MENU_TEXT_BYTES];
     forever_menu_init(&menu);
@@ -674,10 +674,67 @@ static void test_mouse_scroll_menu(void)
     assert(menu.selected == FOREVER_MENU_VOICE);
 }
 
+/* Frame rate cap: one row cycling Off/30/60/120 on Cross, saved as fps= in
+ * C:\wineps5-display.txt beside the file's other keys. */
+static void test_frame_rate_menu(void)
+{
+    static struct forever_menu_state menu;
+    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0, 0};
+    static const char *const shown[] = {
+        "Frame rate cap\tOff\n", "Frame rate cap\t30 fps\n", "Frame rate cap\t60 fps\n",
+        "Frame rate cap\t120 fps (120 Hz TV)\n"};
+    static const char *const saved[] = {"fps=off", "fps=30", "fps=60", "fps=120"};
+    struct forever_display display;
+    struct forever_menu_result result;
+    char text[FOREVER_MENU_TEXT_BYTES], path[1024], expected[64];
+
+    forever_menu_init(&menu);
+    forever_menu_open(&menu, &values);
+    forever_menu_render(&menu, text, sizeof(text));
+    assert(strstr(text, " HDR\tOn\n  Frame rate cap\tOff\n  Performance overlay\tOff\n"));
+    assert(FOREVER_MENU_LINE_FRAME_RATE == FOREVER_MENU_LINE_HDR + 1);
+    assert(FOREVER_MENU_LINE_HUD == FOREVER_MENU_LINE_FRAME_RATE + 1);
+    forever_menu_move(&menu, 1);
+    forever_menu_move(&menu, 1);
+    assert(menu.selected == FOREVER_MENU_FRAME_RATE);
+    forever_menu_move(&menu, 1);
+    assert(menu.selected == FOREVER_MENU_HUD);
+
+    make_path(path, sizeof(path), "display/drive_c/" FOREVER_DISPLAY_FILE);
+    put("display/drive_c/" FOREVER_DISPLAY_FILE, "keep=1\tfps=bogus\n");
+    assert(forever_display_read(path, &display) == -EINVAL && display.frame_rate == FOREVER_FPS_OFF);
+    for (int step = 1; step <= FOREVER_FRAME_RATE_CHOICES; step++)
+    {
+        int next = step % FOREVER_FRAME_RATE_CHOICES;
+        result = step == 1 ? forever_menu_click_line(&menu, FOREVER_MENU_LINE_FRAME_RATE)
+                           : forever_menu_select(&menu);
+        assert(menu.selected == FOREVER_MENU_FRAME_RATE);
+        assert(result.command == FOREVER_MENU_COMMAND_SET_FRAME_RATE && result.enabled == next);
+        assert(menu.values.frame_rate == step - 1); /* commit only after a successful save */
+        assert(!forever_menu_set_frame_rate(path, result.enabled));
+        snprintf(expected, sizeof(expected), "keep=1\t%s\n", saved[next]);
+        assert(text_is("display/drive_c/" FOREVER_DISPLAY_FILE, expected));
+        assert(!forever_display_read(path, &display) && display.frame_rate == (unsigned)next);
+        forever_menu_commit(&menu, result.command, result.enabled);
+        assert(menu.values.frame_rate == next);
+        assert(!strcmp(menu.status, "Applies the next time a game starts."));
+        forever_menu_render(&menu, text, sizeof(text));
+        assert(strstr(text, shown[next]));
+    }
+    forever_menu_commit(&menu, FOREVER_MENU_COMMAND_SET_FRAME_RATE, FOREVER_FRAME_RATE_CHOICES);
+    assert(menu.values.frame_rate == 0);
+    assert(forever_menu_set_frame_rate(path, FOREVER_FRAME_RATE_CHOICES) == -EINVAL);
+    assert(forever_menu_set_frame_rate(path, -1) == -EINVAL);
+    assert(text_is("display/drive_c/" FOREVER_DISPLAY_FILE, "keep=1\tfps=off\n"));
+    make_path(path, sizeof(path), "display/new/" FOREVER_DISPLAY_FILE);
+    assert(!forever_menu_set_frame_rate(path, 2));
+    assert(text_is("display/new/" FOREVER_DISPLAY_FILE, "fps=60\n"));
+}
+
 static void test_voice_menu(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0, 0};
     struct forever_menu_result result;
     char text[FOREVER_MENU_TEXT_BYTES];
     forever_menu_init(&menu);
@@ -809,7 +866,7 @@ static void test_key_rewrite(void)
 static void test_frame_generation_lossless_only(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_OFF, 1, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_OFF, 1, 0, 0, 0, 0};
     char path[1024], lossless[1024], none[1024], text[FOREVER_MENU_TEXT_BYTES];
     enum forever_frame_generation fg_mode = FOREVER_FG_OFF;
     int hdr = -1, hud = -1, invert_scroll = -1, voice = -1;
@@ -931,7 +988,7 @@ static void test_deletion_scope(void)
 
 static void open_find(struct forever_menu_state *menu, struct forever_addon_snapshot *snapshot)
 {
-    struct forever_menu_values values = {FOREVER_FG_AUTO, 1, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_AUTO, 1, 0, 0, 0, 0};
     forever_menu_init(menu);
     forever_menu_open(menu, &values);
     menu->page = FOREVER_MENU_ADDON_PAGE;
@@ -1080,7 +1137,7 @@ static void test_find_search_and_github(void)
 static void test_exit_menu(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 1, 0};
+    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 1, 0, 0};
     char text[FOREVER_MENU_TEXT_BYTES];
     const char *close_row, *exit_row;
 
@@ -1141,7 +1198,7 @@ static void test_exit_menu(void)
 static void test_state_machine(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_AUTO, 1, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_AUTO, 1, 0, 0, 0, 0};
     static struct forever_addon_snapshot snapshot = {.tab = FOREVER_ADDON_FIND};
     struct forever_menu_result result;
     char text[FOREVER_MENU_TEXT_BYTES];
@@ -1155,6 +1212,8 @@ static void test_state_machine(void)
     forever_menu_move(&menu, 1);
     assert(menu.selected == FOREVER_MENU_FRAME_GENERATION);
     forever_menu_move(&menu, 1);
+    forever_menu_move(&menu, 1);
+    assert(menu.selected == FOREVER_MENU_FRAME_RATE);
     forever_menu_move(&menu, 1);
     forever_menu_move(&menu, 1);
     assert(menu.selected == FOREVER_MENU_INVERT_SCROLL);
@@ -1381,6 +1440,7 @@ int main(void)
     test_voice_resume();
     test_download_redirects();
     test_mouse_scroll_menu();
+    test_frame_rate_menu();
     test_voice_menu();
     test_hdr_config();
     test_deletion_scope();

@@ -11,6 +11,7 @@
 #define FOREVER_DRIVE_C "/test/drive_c"
 #define FOREVER_APP_SHARE "/test/share"
 #define FOREVER_PREFIX "/test/prefix"
+#define FOREVER_DISPLAY_FILE "wineps5-display.txt"
 #include "forever-exit-types.inc"
 
 static int create_error, creates, detaches, joins, setting_writes;
@@ -55,6 +56,13 @@ static int forever_menu_set_frame_generation(const char *path, int enabled)
     (void)path;
     (void)enabled;
     assert(!"frame generation is not written on exit");
+    return -1;
+}
+static int forever_menu_set_frame_rate(const char *path, int value)
+{
+    (void)path;
+    (void)value;
+    assert(!"the frame rate cap is not written on exit");
     return -1;
 }
 static const char *forever_setting_permission_message(int result)
