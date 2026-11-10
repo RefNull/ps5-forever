@@ -1,4 +1,3 @@
-.NOTPARALLEL:
 .DELETE_ON_ERROR:
 HOST_OUT := ../../build/psmkit-wine-host
 PE_OUT := ../../build/psmkit-wine-pe
@@ -104,92 +103,56 @@ $(HOST_OUT)/test-staged-runtime: test-staged-runtime.c elf-runtime.c elf-runtime
 	mkdir -p $(HOST_OUT)
 	$(HOST_CC) -std=gnu11 -O2 -g -Wall -Wextra -Werror -pthread test-staged-runtime.c elf-runtime.c -o $@
 
-test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT)/test-installer-continue \
-		$(HOST_OUT)/test-elf-runtime $(HOST_OUT)/test-wine-title \
-		$(HOST_OUT)/test-wine-title-exit $(HOST_OUT)/test-write-buffer $(HOST_OUT)/test-request-profile $(HOST_OUT)/test-runtime-profile-callbacks $(HOST_OUT)/test-loader-path $(HOST_OUT)/test-runtime-imports \
-		$(HOST_OUT)/test-direct-commit $(HOST_OUT)/test-direct-cache $(HOST_OUT)/test-direct-fail-fast $(HOST_OUT)/test-vm-cpu \
-		$(HOST_OUT)/test-direct-reserve \
-		$(HOST_OUT)/test-runtime-input $(HOST_OUT)/test-title-input \
-		$(HOST_OUT)/test-title-ime $(HOST_OUT)/test-title-voice \
-		$(HOST_OUT)/test-title-voice-overlay $(HOST_OUT)/test-title-voice-overlay-vulkan \
-		$(HOST_OUT)/test-runtime-relaunch $(HOST_OUT)/test-wow-channels \
-		$(HOST_OUT)/test-battlenet-restart $(HOST_OUT)/test-audio-mixer \
-		$(HOST_OUT)/test-audio-selection $(HOST_OUT)/test-fd-parking $(HOST_OUT)/test-browser-switches \
-		$(HOST_OUT)/test-writebroker-autostart $(HOST_OUT)/test-writebroker-space $(HOST_OUT)/test-writebroker-open \
-		$(HOST_OUT)/test-writebroker-lifecycle $(HOST_OUT)/test-writebroker-namespace $(HOST_OUT)/test-title-port-owner \
-		$(HOST_OUT)/test-title-log \
-		$(HOST_OUT)/test-forever-setup $(HOST_OUT)/test-forever-menu $(HOST_OUT)/test-forever-exit $(HOST_OUT)/test-native-exit \
-		$(HOST_OUT)/test-addonforge-client $(HOST_OUT)/test-addonforge-worker $(HOST_OUT)/test-addonforge-security $(HOST_OUT)/test-addon-trash-native \
-		$(HOST_OUT)/test-addon-native-worker $(HOST_OUT)/addon-worker-host $(HOST_OUT)/test-addon-worker-elf \
-		$(HOST_OUT)/test-addon-worker-request $(HOST_OUT)/test-registry-save \
-		$(HOST_OUT)/test-forever-menu-diag \
-		$(HOST_OUT)/test-title-icon $(HOST_OUT)/test-desktop-surface \
-		$(HOST_OUT)/test-cursor $(HOST_OUT)/test-cursor-hub \
-		$(HOST_OUT)/test-cursor-peer $(HOST_OUT)/test-file-security $(HOST_OUT)/test-videoout-geometry \
-		$(PE_OUT)/audio-tone.exe test-startup-routing test-runtime-profile test-forever-unpack test-build-speed test-pins \
-		../../tools/test-ps5-capture.py ../../tools/test-fs-throttle-probe.py
-	$(HOST_OUT)/test-protocol
-	$(HOST_OUT)/test-supervisor-admission
-	$(HOST_OUT)/test-installer-continue
-	$(HOST_OUT)/test-elf-runtime
-	$(HOST_OUT)/test-wine-title
-	$(HOST_OUT)/test-wine-title-exit
-	$(HOST_OUT)/test-write-buffer
-	$(HOST_OUT)/test-request-profile
-	$(HOST_OUT)/test-runtime-profile-callbacks
-	$(HOST_OUT)/test-direct-commit
-	$(HOST_OUT)/test-direct-cache
-	$(HOST_OUT)/test-direct-fail-fast
-	$(HOST_OUT)/test-vm-cpu
-	$(HOST_OUT)/test-direct-reserve
-	$(HOST_OUT)/test-loader-path
-	$(HOST_OUT)/test-runtime-imports
-	$(HOST_OUT)/test-runtime-input
-	$(HOST_OUT)/test-title-input
-	$(HOST_OUT)/test-title-ime
-	$(HOST_OUT)/test-title-voice
-	$(HOST_OUT)/test-title-voice-overlay
-	$(HOST_OUT)/test-title-voice-overlay-vulkan
-	$(HOST_OUT)/test-runtime-relaunch
-	$(HOST_OUT)/test-wow-channels
-	$(HOST_OUT)/test-battlenet-restart
-	$(HOST_OUT)/test-audio-mixer
-	$(HOST_OUT)/test-audio-selection
-	$(HOST_OUT)/test-fd-parking
-	$(HOST_OUT)/test-browser-switches
-	$(HOST_OUT)/test-writebroker-autostart
-	$(HOST_OUT)/test-writebroker-space
-	$(HOST_OUT)/test-writebroker-open
-	$(HOST_OUT)/test-writebroker-lifecycle
-	$(HOST_OUT)/test-writebroker-namespace
-	$(HOST_OUT)/test-title-port-owner
-	$(HOST_OUT)/test-title-log
-	$(HOST_OUT)/test-forever-setup
-	$(HOST_OUT)/test-forever-menu
-	$(HOST_OUT)/test-forever-exit
-	$(HOST_OUT)/test-native-exit
-	$(HOST_OUT)/test-addonforge-client
-	$(HOST_OUT)/test-addonforge-worker
-	$(HOST_OUT)/test-addonforge-security
-	$(HOST_OUT)/test-addon-trash-native
-	$(HOST_OUT)/test-addon-native-worker
-	python3 test-addon-native-worker-protocol.py "$(HOST_OUT)/addon-worker-host"
-	$(HOST_OUT)/test-addon-worker-elf
-	$(HOST_OUT)/test-addon-worker-request
-	$(HOST_OUT)/test-registry-save
-	$(HOST_OUT)/test-forever-menu-diag
-	$(HOST_OUT)/test-title-icon
-	$(HOST_OUT)/test-desktop-surface
-	$(HOST_OUT)/test-cursor
-	$(HOST_OUT)/test-cursor --no-proc
-	$(HOST_OUT)/test-cursor --no-cursor-proc
-	$(HOST_OUT)/test-cursor --cursor-no-modes
-	$(HOST_OUT)/test-cursor-hub
-	$(HOST_OUT)/test-cursor-peer
-	$(HOST_OUT)/test-file-security
-	$(HOST_OUT)/test-videoout-geometry
-	python3 ../../tools/test-ps5-capture.py
-	python3 ../../tools/test-fs-throttle-probe.py
+# `test` runs every host test as its own run-* target, so `make -j` builds and
+# runs them concurrently; each prints PASS or FAIL with its name. Tests use
+# private temporary directories and ephemeral loopback ports, and builders that
+# share an extracted .inc write it atomically with identical content.
+HOST_TEST_BINARIES := test-protocol test-supervisor-admission test-installer-continue \
+	test-elf-runtime test-wine-title test-wine-title-exit test-write-buffer \
+	test-request-profile test-runtime-profile-callbacks test-direct-commit test-direct-cache \
+	test-direct-fail-fast test-vm-cpu test-direct-reserve test-loader-path test-runtime-imports \
+	test-runtime-input test-title-input test-title-ime test-title-voice test-title-voice-overlay \
+	test-title-voice-overlay-vulkan test-runtime-relaunch test-wow-channels \
+	test-battlenet-restart test-audio-mixer test-audio-selection test-fd-parking \
+	test-browser-switches test-writebroker-autostart test-writebroker-space \
+	test-writebroker-open test-writebroker-lifecycle test-writebroker-namespace \
+	test-title-port-owner test-title-log test-forever-setup test-forever-menu \
+	test-forever-exit test-native-exit test-addonforge-client test-addonforge-worker \
+	test-addonforge-security test-addon-trash-native test-addon-native-worker \
+	test-addon-worker-elf test-addon-worker-request test-registry-save \
+	test-forever-menu-diag test-title-icon test-desktop-surface test-cursor test-cursor-hub \
+	test-cursor-peer test-file-security test-videoout-geometry
+HOST_TEST_RUNS := $(addprefix run-,$(HOST_TEST_BINARIES)) \
+	run-test-cursor-no-proc run-test-cursor-no-cursor-proc run-test-cursor-no-modes \
+	run-test-prefix-init run-test-addon-native-worker-protocol \
+	run-test-ps5-capture run-test-fs-throttle-probe \
+	run-test-startup-routing run-test-runtime-profile run-test-forever-unpack \
+	run-test-build-speed run-test-pins
+REPORT = || { echo "FAIL $(@:run-%=%)"; exit 1; }; echo "PASS $(@:run-%=%)"
+.PHONY: list-host-tests $(HOST_TEST_RUNS)
+
+test: $(HOST_TEST_RUNS) $(PE_OUT)/audio-tone.exe
+
+list-host-tests:
+	@printf '%s\n' $(HOST_TEST_RUNS:run-%=%)
+
+$(addprefix run-,$(HOST_TEST_BINARIES)): run-%: $(HOST_OUT)/%
+	@$(HOST_OUT)/$* $(REPORT)
+run-test-cursor-no-proc: $(HOST_OUT)/test-cursor
+	@$< --no-proc $(REPORT)
+run-test-cursor-no-cursor-proc: $(HOST_OUT)/test-cursor
+	@$< --no-cursor-proc $(REPORT)
+run-test-cursor-no-modes: $(HOST_OUT)/test-cursor
+	@$< --cursor-no-modes $(REPORT)
+run-test-prefix-init: $(HOST_OUT)/test-forever-setup
+	@$< --prefix-init $(REPORT)
+run-test-addon-native-worker-protocol: test-addon-native-worker-protocol.py $(HOST_OUT)/addon-worker-host
+	@python3 test-addon-native-worker-protocol.py "$(HOST_OUT)/addon-worker-host" $(REPORT)
+run-test-ps5-capture run-test-fs-throttle-probe: run-%: ../../tools/%.py
+	@python3 $< $(REPORT)
+# These phony targets keep their own recipes for individual use.
+run-test-startup-routing run-test-runtime-profile run-test-forever-unpack run-test-build-speed run-test-pins:
+	@$(MAKE) --no-print-directory -s $(@:run-%=%) $(REPORT)
 
 $(HOST_OUT)/test-fd-parking: test-fd-parking.c build-fd-parking-test.py $(WINE_SRC)/server/fd.c
 	python3 build-fd-parking-test.py --wine "$(WINE_SRC)" --output "$@" --cc "$(HOST_CC)"

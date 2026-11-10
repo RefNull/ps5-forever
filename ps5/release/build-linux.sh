@@ -390,6 +390,33 @@ build_addonforge_cached() {
             --cache "$FOREVER_BUILD_CACHE" \
             --catalogue-snapshot "$logs/github-catalogue.csv"
 }
+# Builds and runs every host test in parallel; -k lets the rest finish after a
+# failure. Prints PASS or FAIL per target and the overall result.
+host_tests() {
+    local suite=ps5/probes/psmkit-wine status name result passed=0
+    local -a args=(HOST_CC=clang-19 MINGW_CC="$LLVM_MINGW/bin/x86_64-w64-mingw32-clang")
+    local -a failed=()
+    set +e
+    make -s -j"$JOBS" -O -k -C "$suite" test "${args[@]}" 2>&1 | tee "$logs/host-tests-make.log"
+    status=${PIPESTATUS[0]}
+    set -e
+    printf '\n'
+    while read -r name; do
+        if grep -qx "FAIL $name" "$logs/host-tests-make.log"; then
+            failed+=("$name")
+        elif grep -qx "PASS $name" "$logs/host-tests-make.log"; then
+            passed=$((passed + 1))
+            printf 'PASS %s\n' "$name"
+        else
+            failed+=("$name (not run: its build failed)")
+        fi
+    done < <(make -s -C "$suite" list-host-tests)
+    for name in "${failed[@]}"; do printf 'FAIL %s\n' "$name"; done
+    (( ${#failed[@]} == 0 && status == 0 )) && result=PASS || result=FAIL
+    printf 'HOST_TESTS result=%s passed=%s failed=%s make_status=%s\n' \
+        "$result" "$passed" "${#failed[@]}" "$status"
+    [[ $result == PASS ]]
+}
 # Free space for what this run still writes; the image and sources already
 # exist. A measured cold run grew the cache by 4.8 GiB and the build tree by
 # 7.2 GiB; cache hits are symlinks, so a warm run writes at most that tree.
@@ -426,9 +453,7 @@ fi
 trap cleanup EXIT
 stage inputs validate_sources
 stage disk check_disk
-stage host-tests make -s -C ps5/probes/psmkit-wine test \
-    HOST_CC=clang-19 \
-    MINGW_CC="$LLVM_MINGW/bin/x86_64-w64-mingw32-clang"
+stage host-tests host_tests
 stage sdk build_sdk
 stage host-tools build_host_tools
 stage radv build_radv_cached

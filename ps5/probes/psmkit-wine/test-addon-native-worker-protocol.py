@@ -13,6 +13,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import zipfile
 
@@ -263,9 +264,21 @@ def admission_cases():
 
 def deadline_cases(root, archive):
     # The fixed request and STORE chunk use distinct absolute frame budgets.
+    # The partial request's 30 s runs beside the STORE cases: each connection
+    # has its own deadline, and the STORE cases then also show that a stalled
+    # request frame does not block PROBE or the STORE deadline.
     partial, result = connect()
     assert result == 0
-    trickle_until_closed(partial, REQUEST.pack(MAGIC, PROBE, bytes(32), 0, 0, bytes(32))[:1], 30)
+    errors = []
+
+    def partial_request():
+        try:
+            trickle_until_closed(partial, REQUEST.pack(MAGIC, PROBE, bytes(32), 0, 0, bytes(32))[:1], 30)
+        except BaseException as error:  # re-raised on the main thread
+            errors.append(error)
+
+    partial_thread = threading.Thread(target=partial_request)
+    partial_thread.start()
     for number, trickle in ((0x31, False), (0x32, True)):
         operation = f"{number:032x}"
         sock, result = connect()
@@ -285,6 +298,9 @@ def deadline_cases(root, archive):
             assert 29 <= time.monotonic() - started <= 33
             sock.close()
         wait_absent(root / operation)
+    partial_thread.join()
+    if errors:
+        raise errors[0]
     assert command(PROBE)[3] == 0
 
 

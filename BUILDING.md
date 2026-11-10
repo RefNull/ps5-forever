@@ -44,7 +44,9 @@ JOBS=8 bash ps5/release/build-linux.sh /absolute/SOURCE_ROOT 01.024.001
 ```
 
 The tag must equal the source `sce_sys/param.json` content version. Source
-validation and the full host suite run first. The script then builds the Docker
+validation and the full host suite run first; the suite builds and runs its
+tests in parallel (`JOBS`) and ends with `PASS`/`FAIL` per test and a
+`HOST_TESTS result=` line. The script then builds the Docker
 image, the SDK, native title tooling/clean-room libc, patched RADV,
 whisper.cpp/ggml, FreeType, GnuTLS, Wine, 64-bit vkd3d-proton and DXVK `dxgi`
 (the only graphics DLLs that ship), the patched
@@ -250,8 +252,11 @@ docker run --rm --pull=never --user "$(id -u):$(id -g)" \
   --mount "type=bind,source=$SOURCE_ROOT,target=/sources" \
   --workdir /sources/ps5-proton/ps5-wow \
   forever-launcher-linux:ubuntu-24.04 \
-  bash -c 'mkdir -p "$HOME"; make -s -C ps5/probes/psmkit-wine test MINGW_CC=/opt/llvm-mingw/bin/x86_64-w64-mingw32-clang'
+  bash -c 'mkdir -p "$HOME"; make -s -j"$(nproc)" -O -k -C ps5/probes/psmkit-wine test MINGW_CC=/opt/llvm-mingw/bin/x86_64-w64-mingw32-clang'
 ```
+
+`make -C ps5/probes/psmkit-wine list-host-tests` names every test that `test`
+runs; each one is also a `run-<name>` target.
 
 Several gates (`test-write-buffer`, `test-file-security`, `test-cursor`,
 `test-direct-*`) compile production functions extracted from `WINE_SRC`, so use
