@@ -11,7 +11,7 @@ ps5/probes/psmkit-wine/title-icon.h
  * to caller-given paths through forever-setup.h; the PNG is built in memory;
  * stb_image v2.30 (third_party/stb). */
 
-ps5/title/compositor.c
+ps5/title/bitmap-font.h
 /* Font and message panel adapted from ps5-forever examples/battlenet/cpu_desktop.c
  * (commit 6cf23f2d, Copyright (C) 2026 Mihawk, MIT) */
 

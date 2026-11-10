@@ -674,10 +674,10 @@
           ]
         },
         {
-          "path": "ps5/title/compositor.c",
+          "path": "ps5/title/bitmap-font.h",
           "lines": [
-            67,
-            68
+            6,
+            7
           ]
         },
         {
@@ -695,7 +695,20 @@
           ]
         }
       ],
-      "sha256": "06d27fd91b30a5480c392cb2a58c85d9574273e2af227d2605da4d3ab450737c"
+      "sha256": "73b394e89f40b8e07550d2db5615d71b18fd8dd690baf66bac198105db8cbbb9"
+    },
+    "WoWPS5/NOTICE.txt": {
+      "component": "WoWPS5 v0.1.1 adaptations",
+      "excerpts": [
+        {
+          "path": "ps5/probes/psmkit-wine/native-entry.c",
+          "lines": [
+            294,
+            318
+          ]
+        }
+      ],
+      "sha256": "5a303fe06d8ac0a036717959105d6894e53c1355ca2d53da6ac489546b339319"
     },
     "vkd3d-proton/COPYING": {
       "component": "vkd3d-proton",

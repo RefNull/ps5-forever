@@ -182,6 +182,19 @@ def check(manifest):
     expect((record['url'], record['revision'], record['sha256']) ==
            (miniz['repository'], miniz['commit'], miniz['files']['LICENSE']),
            'provenance miniz/LICENSE differs from the vendored SOURCE.json')
+    # Each asset has its recorded digest; an excerpt notice is still the
+    # repository's current text at the recorded lines.
+    for asset, record in provenance.items():
+        data = (RELEASE / 'licenses' / asset).read_bytes()
+        expect(hashlib.sha256(data).hexdigest() == record.get('sha256'),
+               f'provenance {asset}: sha256 differs from the file')
+        excerpts = ''
+        for excerpt in record.get('excerpts', []):
+            first, last = excerpt['lines']
+            lines = (REPO / excerpt['path']).read_text().splitlines(True)[first - 1:last]
+            excerpts += excerpt['path'] + '\n' + ''.join(lines) + '\n'
+        expect(not excerpts or excerpts.encode() == data,
+               f'provenance {asset}: excerpts differ from the repository')
     # PS5_Vulkan's verbatim notice names the archives its setup script verifies.
     notice = (RELEASE / 'licenses/PS5_Vulkan/NOTICE.txt').read_text()
     for key in ('payload-sdk', 'native-zlib'):
