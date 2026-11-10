@@ -10,6 +10,7 @@ static const enum forever_menu_item selectable[] = {
     FOREVER_MENU_FRAME_GENERATION,
     FOREVER_MENU_HDR,
     FOREVER_MENU_FRAME_RATE,
+    FOREVER_MENU_RESOLUTION,
     FOREVER_MENU_HUD,
     FOREVER_MENU_INVERT_SCROLL,
     FOREVER_MENU_VOICE,
@@ -334,6 +335,10 @@ struct forever_menu_result forever_menu_select(struct forever_menu_state *menu)
         return (struct forever_menu_result){
             .command = FOREVER_MENU_COMMAND_SET_FRAME_RATE,
             .enabled = (menu->values.frame_rate + 1) % FOREVER_FRAME_RATE_CHOICES};
+    case FOREVER_MENU_RESOLUTION:
+        return (struct forever_menu_result){
+            .command = FOREVER_MENU_COMMAND_SET_RESOLUTION,
+            .enabled = (menu->values.resolution + 1) % FOREVER_RESOLUTION_CHOICES};
     case FOREVER_MENU_HUD:
         return (struct forever_menu_result){
             .command = FOREVER_MENU_COMMAND_SET_HUD, .enabled = !menu->values.hud};
@@ -781,6 +786,7 @@ struct forever_menu_result forever_menu_click_line(struct forever_menu_state *me
         case FOREVER_MENU_LINE_FRAME_GENERATION: menu->selected = FOREVER_MENU_FRAME_GENERATION; break;
         case FOREVER_MENU_LINE_HDR: menu->selected = FOREVER_MENU_HDR; break;
         case FOREVER_MENU_LINE_FRAME_RATE: menu->selected = FOREVER_MENU_FRAME_RATE; break;
+        case FOREVER_MENU_LINE_RESOLUTION: menu->selected = FOREVER_MENU_RESOLUTION; break;
         case FOREVER_MENU_LINE_HUD: menu->selected = FOREVER_MENU_HUD; break;
         case FOREVER_MENU_LINE_INVERT_SCROLL: menu->selected = FOREVER_MENU_INVERT_SCROLL; break;
         case FOREVER_MENU_LINE_VOICE: menu->selected = FOREVER_MENU_VOICE; break;
@@ -844,6 +850,11 @@ void forever_menu_commit(struct forever_menu_state *menu, enum forever_menu_comm
         menu->values.frame_rate = enabled;
         copy_status(menu, "Applies the next time a game starts.");
         return;
+    case FOREVER_MENU_COMMAND_SET_RESOLUTION:
+        if (enabled < 0 || enabled >= FOREVER_RESOLUTION_CHOICES) return;
+        menu->values.resolution = enabled;
+        copy_status(menu, "Applies the next time a game starts.");
+        return;
     default: return;
     }
     menu->status[0] = 0;
@@ -889,6 +900,14 @@ static const char *frame_rate_name(int value)
     static const char *const names[FOREVER_FRAME_RATE_CHOICES] = {
         "Off", "30 fps", "60 fps", "120 fps (120 Hz TV)"};
     return value > 0 && value < FOREVER_FRAME_RATE_CHOICES ? names[value] : names[0];
+}
+
+static const char *resolution_name(int value)
+{
+    static const char *const names[FOREVER_RESOLUTION_CHOICES] = {
+        "Auto (4K)", "1440p", "1080p", "1600p (16:10)", "1200p (16:10)",
+        "800p (16:10)"};
+    return value > 0 && value < FOREVER_RESOLUTION_CHOICES ? names[value] : names[0];
 }
 
 struct text_writer
@@ -993,6 +1012,7 @@ void forever_menu_render(const struct forever_menu_state *menu, char *text, size
                  "%s Frame generation\t%s\n"
                  "%s HDR\t%s\n"
                  "%s Frame rate cap\t%s\n"
+                 "%s Output resolution\t%s\n"
                  "%s Performance overlay\t%s\n"
                  "%s Invert mouse scroll\t%s\n"
                  "%s Voice-to-Text\t%s\n"
@@ -1010,6 +1030,8 @@ void forever_menu_render(const struct forever_menu_state *menu, char *text, size
                  mark(menu->selected == FOREVER_MENU_HDR), menu->values.hdr ? "On" : "Off",
                  mark(menu->selected == FOREVER_MENU_FRAME_RATE),
                  frame_rate_name(menu->values.frame_rate),
+                 mark(menu->selected == FOREVER_MENU_RESOLUTION),
+                 resolution_name(menu->values.resolution),
                  mark(menu->selected == FOREVER_MENU_HUD), menu->values.hud ? "On" : "Off",
                  mark(menu->selected == FOREVER_MENU_INVERT_SCROLL),
                  menu->values.invert_scroll ? "On" : "Off",

@@ -653,6 +653,31 @@ static void test_mouse_scroll_startup(void)
     pointer_cancel();
 }
 
+/* A 16:9 output size scans out fewer pixels: the 1080p desktop cursor is
+ * enlarged less. 16:10 sizes keep the 4K scanout and its 2x cursor. */
+static void test_cursor_output_scale(void)
+{
+    static uint32_t image[CURSOR_SLOT_BYTES / sizeof(uint32_t)];
+    union {
+        struct ps5_desktop_cursor_shape shape;
+        unsigned char bytes[PS5_DESKTOP_MAX_MESSAGE];
+    } message = {.shape = {.header = {PS5_DESKTOP_CURSOR_SHAPE, 0},
+        .width = 2, .height = 2, .hotspot_x = 1, .hotspot_y = 1, .visible = 1}};
+    static const struct { const char *size; int hotspot; } cases[] = {
+        {NULL, 2}, {"3840x2160", 2}, {"2560x1440", 1}, {"1920x1080", 1},
+        {"2560x1600", 2}, {"1920x1200", 2}, {"1280x800", 2}, {"640x480", 2},
+    };
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+    {
+        assert(cases[i].size ? !setenv("PS5_VIDEOOUT_SIZE", cases[i].size, 1) :
+                               !unsetenv("PS5_VIDEOOUT_SIZE"));
+        cursor_render_shape(image, &message.shape);
+        assert(cursor_hotspot_x == cases[i].hotspot && cursor_hotspot_y == cases[i].hotspot);
+    }
+    assert(!unsetenv("PS5_VIDEOOUT_SIZE"));
+    cursor_hotspot_x = cursor_hotspot_y = 0;
+}
+
 int main(void)
 {
     union ps5_title_input event;
@@ -661,6 +686,7 @@ int main(void)
     struct pointer_event pointer = {.kind = POINTER_MOVE};
     test_mouse_scroll();
     test_mouse_scroll_startup();
+    test_cursor_output_scale();
     {
         const unsigned chord = PAD_L3 | PAD_R3;
         assert(!osk_chord_update(PAD_L3 | PAD_CROSS, 1, 0));

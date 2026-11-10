@@ -5,6 +5,7 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <stdatomic.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -58,15 +59,16 @@ int pw_title_set_cursor(const void *message, unsigned size)
     return 1;
 }
 
-/* RADV's VideoOut position function uses these fixed scanout dimensions too
- * (0001-videoout-hdr10-and-immediate.patch), independently of render extent.
- * Desktop shapes are 1080p; clamp a uniform integer enlargement to the plane. */
-#define CURSOR_SCANOUT_WIDTH 3840u
-#define CURSOR_SCANOUT_HEIGHT 2160u
+/* The cursor plane is in VideoOut scanout pixels: 4K, or the 16:9 output
+ * size PS5_VIDEOOUT_SIZE names; RADV maps positions to it
+ * (0095-videoout-runtime-output-size.patch). Desktop shapes are 1080p; clamp
+ * a uniform integer enlargement to the plane. */
 static void cursor_render_shape(uint32_t *image, const struct ps5_desktop_cursor_shape *shape)
 {
-    unsigned scale = CURSOR_SCANOUT_WIDTH / PS5_DESKTOP_WIDTH;
-    unsigned sy = CURSOR_SCANOUT_HEIGHT / PS5_DESKTOP_HEIGHT;
+    const struct forever_resolution_info *output =
+        forever_resolution(forever_resolution_from_size(getenv("PS5_VIDEOOUT_SIZE")));
+    unsigned scale = output->scanout_width / PS5_DESKTOP_WIDTH;
+    unsigned sy = output->scanout_height / PS5_DESKTOP_HEIGHT;
     if (scale > sy) scale = sy;
     if (!scale) scale = 1;
     if (scale > CURSOR_IMAGE_SIDE / shape->width) scale = CURSOR_IMAGE_SIDE / shape->width;

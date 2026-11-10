@@ -1,0 +1,658 @@
+--- a/src/vulkan/wsi/wsi_common.c
++++ b/src/vulkan/wsi/wsi_common.c
+@@ -133,6 +133,8 @@ wsi_device_init(struct wsi_device *wsi,
+       VkFlags req_flags = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT | VK_QUEUE_TRANSFER_BIT;
+       if (queue_properties[i].queueFlags & req_flags)
+          wsi->queue_supports_blit |= BITFIELD64_BIT(i);
++      if (queue_properties[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)
++         wsi->queue_supports_graphics |= BITFIELD64_BIT(i);
+ 
+       if (queue_properties[i].timestampValidBits >= 32) {
+          wsi->queue_supports_timestamps |= BITFIELD64_BIT(i);
+@@ -193,6 +195,7 @@ wsi_device_init(struct wsi_device *wsi,
+    WSI_GET_CB(BindImageMemory);
+    WSI_GET_CB(BeginCommandBuffer);
+    WSI_GET_CB(CmdPipelineBarrier);
++   WSI_GET_CB(CmdBlitImage);
+    WSI_GET_CB(CmdCopyImage);
+    WSI_GET_CB(CmdCopyImageToBuffer);
+    WSI_GET_CB(CmdResetQueryPool);
+@@ -426,7 +429,7 @@ get_blit_type(const struct wsi_device *wsi,
+ #endif
+ #ifdef MESA_WSI_VIDEOOUT
+    case WSI_IMAGE_TYPE_VIDEOOUT:
+-      return WSI_SWAPCHAIN_NO_BLIT;
++      return wsi_videoout_image_needs_blit() ? WSI_SWAPCHAIN_IMAGE_BLIT : WSI_SWAPCHAIN_NO_BLIT;
+ #endif
+ #if defined(VK_USE_PLATFORM_METAL_EXT)
+    case WSI_IMAGE_TYPE_METAL: {
+@@ -529,7 +532,14 @@ wsi_swapchain_init(const struct wsi_device *wsi,
+        (pCreateInfo->flags & VK_SWAPCHAIN_CREATE_PRESENT_TIMING_BIT_EXT) ||
+        device->enabled_extensions.GOOGLE_display_timing) {
+ 
+-      if (chain->blit.type != WSI_SWAPCHAIN_NO_BLIT && wsi->get_blit_queue) {
++#ifdef MESA_WSI_VIDEOOUT
++      /* A scaling blit cannot run on a transfer (SDMA) queue. */
++      const bool graphics_blit = chain->blit.type != WSI_SWAPCHAIN_NO_BLIT &&
++                                 image_params->image_type == WSI_IMAGE_TYPE_VIDEOOUT;
++#else
++      const bool graphics_blit = false;
++#endif
++      if (chain->blit.type != WSI_SWAPCHAIN_NO_BLIT && wsi->get_blit_queue && !graphics_blit) {
+          chain->blit.queue = wsi->get_blit_queue(_device);
+       }
+ 
+@@ -558,6 +568,8 @@ wsi_swapchain_init(const struct wsi_device *wsi,
+             /* Fallback. If this happens we don't advertise support for queue complete times. */
+             if (!effective_queues)
+                effective_queues = wsi->queue_supports_blit;
++            if (graphics_blit)
++               effective_queues &= wsi->queue_supports_graphics;
+ 
+             /* Queues returned by get_blit_queue() might not be listed in
+             * GetPhysicalDeviceQueueFamilyProperties, so this check is skipped for those queues.
+@@ -3320,7 +3332,11 @@ wsi_cmd_blit_image_to_image(VkCommandBuffer cmd_buffer,
+                             const struct wsi_image_info *info,
+                             struct wsi_image *image)
+ {
++#ifdef MESA_WSI_VIDEOOUT
++   assert(info->image_type == WSI_IMAGE_TYPE_DXGI || info->image_type == WSI_IMAGE_TYPE_VIDEOOUT);
++#else
+    assert(info->image_type == WSI_IMAGE_TYPE_DXGI);
++#endif
+ 
+    VkImageMemoryBarrier img_mem_barriers[2] = {
+       {
+@@ -3385,6 +3401,28 @@ wsi_cmd_blit_image_to_image(VkCommandBuffer cmd_buffer,
+       .dstOffset = { .x = 0, .y = 0, .z = 0 },
+       .extent = info->create.extent,
+    };
++#ifdef MESA_WSI_VIDEOOUT
++   if (info->image_type == WSI_IMAGE_TYPE_VIDEOOUT) {
++      /* PS5 16:10 output: scale into the centred region of the 4K
++       * framebuffer, never outside it. HDR10 holds PQ codes, which are far
++       * from linear in light: replicate pixels rather than blend codes. */
++      VkImageBlit blit = {
++         .srcSubresource = image_copy.srcSubresource,
++         .srcOffsets = {{0, 0, 0},
++                        {(int32_t)info->create.extent.width, (int32_t)info->create.extent.height, 1}},
++         .dstSubresource = image_copy.dstSubresource,
++      };
++      wsi_videoout_blit_region(blit.dstOffsets);
++      wsi->CmdBlitImage(cmd_buffer,
++                        image->image,
++                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
++                        image->blit.image,
++                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
++                        1, &blit,
++                        info->color_space == VK_COLOR_SPACE_HDR10_ST2084_EXT ?
++                           VK_FILTER_NEAREST : VK_FILTER_LINEAR);
++   } else
++#endif
+    wsi->CmdCopyImage(cmd_buffer,
+                      image->image,
+                      VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+--- a/src/vulkan/wsi/wsi_common.h
++++ b/src/vulkan/wsi/wsi_common.h
+@@ -62,6 +62,9 @@ struct wsi_device {
+    VkPhysicalDeviceMemoryProperties memory_props;
+    uint32_t queue_family_count;
+    uint64_t queue_supports_blit;
++   /* Queue families with VK_QUEUE_GRAPHICS_BIT: the PS5 16:10 output's
++    * scaling blit (vkCmdBlitImage) runs only there. */
++   uint64_t queue_supports_graphics;
+    uint64_t queue_supports_timestamps;
+    float timestamp_period;
+    uint32_t timestamp_bits;
+@@ -210,6 +213,7 @@ struct wsi_device {
+    WSI_CB(BindImageMemory);
+    WSI_CB(BeginCommandBuffer);
+    WSI_CB(CmdPipelineBarrier);
++   WSI_CB(CmdBlitImage);
+    WSI_CB(CmdCopyImage);
+    WSI_CB(CmdCopyImageToBuffer);
+    WSI_CB(CmdResetQueryPool);
+--- a/src/vulkan/wsi/wsi_common_private.h
++++ b/src/vulkan/wsi/wsi_common_private.h
+@@ -612,6 +612,14 @@ wsi_videoout_configure_image(const struct wsi_swapchain *chain,
+                              const VkSwapchainCreateInfoKHR *pCreateInfo,
+                              const struct wsi_videoout_image_params *params,
+                              struct wsi_image_info *info);
++
++/* A 16:10 output: each present scales the image into a region of the 4K
++ * framebuffer, offsets[0] to offsets[1]. */
++bool
++wsi_videoout_image_needs_blit(void);
++
++void
++wsi_videoout_blit_region(VkOffset3D offsets[2]);
+ #endif
+ 
+ #if defined(VK_USE_PLATFORM_METAL_EXT)
+--- a/src/vulkan/wsi/wsi_common_videoout.c
++++ b/src/vulkan/wsi/wsi_common_videoout.c
+@@ -8,10 +8,11 @@
+  * VK_KHR_display on the PlayStation 5's one display, VideoOut, in place of
+  * the DRM backend (wsi_common_display.c), which the console does not have.
+  *
+- * The display has one plane and one 3840x2160 mode at 59.94 Hz, and a 119.88
+- * Hz mode first where the title's metadata declares high-frame-rate output
+- * and the display refreshes at it (measured, as PS5_Vulkan's ps5vk measured
+- * both). VideoOut's framebuffers are the process's: five 32 MiB buffers of
++ * The display has one plane and one mode at 59.94 Hz, and a 119.88 Hz mode
++ * first where the title's metadata declares high-frame-rate output and the
++ * display refreshes at it (measured, as PS5_Vulkan's ps5vk measured both).
++ * The mode's size is 3840x2160, or the one PS5_VIDEOOUT_SIZE names
++ * (videoout_geometry). VideoOut's framebuffers are the process's: five 32 MiB buffers of
+  * direct memory registered once, in the 64 KiB R_X tiles VideoOut scans out
+  * (ps5platform/videoout.h). A swapchain takes the first of them as its
+  * images, imported into its device as host memory
+@@ -49,6 +50,7 @@
+ #include "vk_util.h"
+ #include "wsi_common_entrypoints.h"
+ #include "wsi_common_private.h"
++#include "wsi_common_videoout_geometry.h"
+ 
+ #if defined(__PROSPERO__)
+ #include <immintrin.h>
+@@ -58,8 +60,6 @@
+ #include <sys/mman.h>
+ #endif
+ 
+-#define VIDEOOUT_WIDTH 3840
+-#define VIDEOOUT_HEIGHT 2160
+ #define VIDEOOUT_BUFFERS 5
+ /* MAILBOX implementation below is WoWPS5's videoout-mailbox.patch, with
+  * only buffer-set indexing and the independent IMMEDIATE mode added. */
+@@ -261,7 +261,45 @@ videoout_mode_from_handle(VkDisplayModeKHR mode)
+    return (struct wsi_videoout_mode *)(uintptr_t)mode;
+ }
+ 
+-static const VkExtent2D videoout_extent = {VIDEOOUT_WIDTH, VIDEOOUT_HEIGHT};
++/* The output's sizes (wsi_common_videoout_geometry.h), chosen once per
++ * process from PS5_VIDEOOUT_SIZE. A 16:10 image is the application's, and
++ * each present scales it into the region (wsi_cmd_blit_image_to_image). */
++static struct videoout_geometry videoout_geometry_value;
++static once_flag videoout_geometry_once = ONCE_FLAG_INIT;
++
++static void
++videoout_geometry_init_once(void)
++{
++   const char *const setting = getenv("PS5_VIDEOOUT_SIZE");
++   struct videoout_geometry *const g = &videoout_geometry_value;
++   const bool known = videoout_geometry_parse(setting, g);
++   fprintf(stderr, "wsi/videoout: output size %ux%u scanout %ux%u region %ux%u+%d+%d%s%s%s\n",
++           g->extent.width, g->extent.height, g->scanout.width, g->scanout.height,
++           g->region.width, g->region.height, g->offset.x, g->offset.y,
++           known ? "" : " (PS5_VIDEOOUT_SIZE=", known ? "" : setting, known ? "" : " refused)");
++}
++
++static const struct videoout_geometry *
++videoout_geometry(void)
++{
++   call_once(&videoout_geometry_once, videoout_geometry_init_once);
++   return &videoout_geometry_value;
++}
++
++bool
++wsi_videoout_image_needs_blit(void)
++{
++   return videoout_geometry_needs_blit(videoout_geometry());
++}
++
++void
++wsi_videoout_blit_region(VkOffset3D offsets[2])
++{
++   const struct videoout_geometry *const g = videoout_geometry();
++   offsets[0] = (VkOffset3D){g->offset.x, g->offset.y, 0};
++   offsets[1] = (VkOffset3D){g->offset.x + (int32_t)g->region.width,
++                             g->offset.y + (int32_t)g->region.height, 1};
++}
+ 
+ struct wsi_videoout_swapchain;
+ 
+@@ -359,6 +397,15 @@ struct wsi_videoout {
+    struct wsi_interface base;
+ };
+ 
++/* The image laid out in the framebuffer: the application's own, or the one
++ * each present scales it into. */
++static VkImage
++videoout_scanout_image(const struct wsi_videoout_swapchain *chain, uint32_t index)
++{
++   return chain->images[index].blit.image != VK_NULL_HANDLE ? chain->images[index].blit.image
++                                                            : chain->images[index].image;
++}
++
+ /* --- VideoOut ------------------------------------------------------------ */
+ 
+ /* The title's launch parameters determine whether PQ buffers are legal. */
+@@ -659,8 +706,8 @@ wsi_videoout_cursor_position(int x, int y, int space_width, int space_height)
+       mtx_unlock(&out->lock);
+       return 1;
+    }
+-   x = CLAMP((int)((int64_t)x * VIDEOOUT_WIDTH / space_width), 0, VIDEOOUT_WIDTH - 1);
+-   y = CLAMP((int)((int64_t)y * VIDEOOUT_HEIGHT / space_height), 0, VIDEOOUT_HEIGHT - 1);
++   /* Where the image is drawn, so the plane is where a click lands. */
++   videoout_geometry_cursor(videoout_geometry(), x, y, space_width, space_height, &x, &y);
+    if (out->cursor_positioned && out->cursor_x == x && out->cursor_y == y) {
+       mtx_unlock(&out->lock);
+       return 0;
+@@ -804,7 +851,7 @@ videoout_settle_modes(void)
+    mtx_unlock(&videoout_output.lock);
+ }
+ 
+-/* Fixed 4K scanout. Exact tokens reuse their registered set. Once the prior
++/* Scanout of videoout_geometry. Exact tokens reuse their registered set. Once the prior
+  * swapchain is gone, compatible four-byte buffers can instead be retyped in
+  * place; if firmware refuses that, registration of a distinct set remains the
+  * fallback. */
+@@ -826,7 +873,8 @@ videoout_register_locked(uint64_t pixel_format, uint32_t *set_out)
+       uint8_t attribute[PS5_VIDEO_OUT_ATTRIBUTE_BYTES] = {0};
+       sceVideoOutSetBufferAttribute2(attribute, pixel_format,
+                                      PS5_VIDEO_OUT_TILING_64KB_R_X,
+-                                     VIDEOOUT_WIDTH, VIDEOOUT_HEIGHT, 0, 0, 0);
++                                     videoout_geometry()->scanout.width,
++                                     videoout_geometry()->scanout.height, 0, 0, 0);
+       int result = 0;
+ #if defined(__PROSPERO__)
+       result = sceVideoOutSubmitChangeBufferAttribute2(out->handle, 0, attribute, NULL);
+@@ -887,8 +935,9 @@ videoout_register_locked(uint64_t pixel_format, uint32_t *set_out)
+    for (uint32_t i = 0; i < VIDEOOUT_BUFFERS; i++)
+       registered[i] = (struct ps5_video_out_buffer){.data = buffers + i * VIDEOOUT_BUFFER_BYTES};
+    uint8_t attribute[PS5_VIDEO_OUT_ATTRIBUTE_BYTES] = {0};
+-   sceVideoOutSetBufferAttribute2(attribute, pixel_format,
+-                                  PS5_VIDEO_OUT_TILING_64KB_R_X, VIDEOOUT_WIDTH, VIDEOOUT_HEIGHT, 0, 0, 0);
++   sceVideoOutSetBufferAttribute2(attribute, pixel_format, PS5_VIDEO_OUT_TILING_64KB_R_X,
++                                  videoout_geometry()->scanout.width,
++                                  videoout_geometry()->scanout.height, 0, 0, 0);
+    if (result == 0)
+       result = sceVideoOutRegisterBuffers2(out->handle, set, set * VIDEOOUT_BUFFERS,
+                                           registered, VIDEOOUT_BUFFERS, attribute, 0, NULL);
+@@ -914,7 +963,7 @@ videoout_register_locked(uint64_t pixel_format, uint32_t *set_out)
+       return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    fprintf(stderr, "wsi/videoout: %ux%u framebuffers registered as set %u, buffers %u-%u pixel_format=0x%016" PRIx64 "\n",
+-           VIDEOOUT_WIDTH, VIDEOOUT_HEIGHT, set, set * VIDEOOUT_BUFFERS,
++           videoout_geometry()->scanout.width, videoout_geometry()->scanout.height, set, set * VIDEOOUT_BUFFERS,
+            (set + 1) * VIDEOOUT_BUFFERS - 1, pixel_format);
+    out->set[set].memory = buffers;
+    out->set[set].pixel_format = pixel_format;
+@@ -1086,7 +1135,7 @@ videoout_capture_tiled_offset(const struct wsi_device *wsi, VkImage image,
+    if (!videoout_capture_tilemap)
+       return wsi->videoout_image_offset(image, x, y);
+    const uint64_t word =
+-      (uint64_t)(y >> 7) * 128 * VIDEOOUT_WIDTH +
++      (uint64_t)(y >> 7) * 128 * videoout_geometry()->scanout.width +
+       (uint64_t)(x >> 9) * (512 * 128) +
+       videoout_capture_tilemap[(y & 127) * 512 + (x & 511)];
+    return word * sizeof(uint32_t);
+@@ -1115,9 +1164,11 @@ videoout_capture_prepare_tilemap(const struct wsi_device *wsi, VkImage image)
+    static const uint16_t check[4][2] = {
+       {480, 270}, {1440, 270}, {480, 1080}, {3360, 1080},
+    };
++   const VkExtent2D scanout = videoout_geometry()->scanout;
+    for (uint32_t i = 0; i < ARRAY_SIZE(check); i++) {
+-      if (videoout_capture_tiled_offset(wsi, image, check[i][0], check[i][1]) !=
+-          wsi->videoout_image_offset(image, check[i][0], check[i][1])) {
++      const uint32_t x = check[i][0] * scanout.width / VIDEOOUT_WIDTH;
++      const uint32_t y = check[i][1] * scanout.height / VIDEOOUT_HEIGHT;
++      if (videoout_capture_tiled_offset(wsi, image, x, y) != wsi->videoout_image_offset(image, x, y)) {
+          free(videoout_capture_tilemap);
+          videoout_capture_tilemap = NULL;
+          fprintf(stderr, "wsi/videoout: capture tiled LUT rejected; using AddrLib per pixel\n");
+@@ -1144,7 +1195,7 @@ videoout_capture_presented(struct wsi_videoout_output *out,
+       check_ns = now;
+       pending_scale = videoout_capture_read_request();
+       if (pending_scale && chain->base.wsi->videoout_image_offset)
+-         videoout_capture_prepare_tilemap(chain->base.wsi, chain->images[0].image);
++         videoout_capture_prepare_tilemap(chain->base.wsi, videoout_scanout_image(chain, 0));
+       return; /* The next presented frame is the one captured. */
+    }
+    if (busy)
+@@ -1157,8 +1208,9 @@ videoout_capture_presented(struct wsi_videoout_output *out,
+ 
+    const unsigned scale = pending_scale;
+    pending_scale = 0;
+-   const uint32_t width = VIDEOOUT_WIDTH / scale;
+-   const uint32_t height = VIDEOOUT_HEIGHT / scale;
++   const VkExtent2D scanout = videoout_geometry()->scanout;
++   const uint32_t width = scanout.width / scale;
++   const uint32_t height = scanout.height / scale;
+    const size_t payload_bytes = (size_t)width * height * sizeof(uint32_t);
+    struct videoout_capture_job *job = malloc(sizeof(*job) + payload_bytes);
+    if (!job) {
+@@ -1169,8 +1221,8 @@ videoout_capture_presented(struct wsi_videoout_output *out,
+    memcpy(job->header.magic, "PS5CAP1", 7);
+    job->header.width = width;
+    job->header.height = height;
+-   job->header.source_width = VIDEOOUT_WIDTH;
+-   job->header.source_height = VIDEOOUT_HEIGHT;
++   job->header.source_width = scanout.width;
++   job->header.source_height = scanout.height;
+    job->header.format = chain->format;
+    job->header.color_space = chain->color_space;
+    job->header.pixel_format = out->set[chain->set].pixel_format;
+@@ -1196,7 +1248,7 @@ videoout_capture_presented(struct wsi_videoout_output *out,
+    for (uint32_t y = 0; y < height; y++) {
+       for (uint32_t x = 0; x < width; x++) {
+          const uint64_t offset = videoout_capture_tiled_offset(
+-            chain->base.wsi, chain->images[index].image, x * scale, y * scale);
++            chain->base.wsi, videoout_scanout_image(chain, index), x * scale, y * scale);
+          if (offset + sizeof(uint32_t) > VIDEOOUT_BUFFER_BYTES) {
+             fprintf(stderr, "wsi/videoout: capture tiled address out of range x=%u y=%u"
+                             " offset=0x%" PRIx64 "\n",
+@@ -1276,7 +1328,9 @@ videoout_flip_thread(void *data)
+                uint32_t samples[8];
+                for (uint32_t i = 0; i < ARRAY_SIZE(coords); i++) {
+                   offsets[i] = videoout_capture_tiled_offset(
+-                     wsi, chain->images[index].image, coords[i][0], coords[i][1]);
++                     wsi, videoout_scanout_image(chain, index),
++                     coords[i][0] * videoout_geometry()->scanout.width / VIDEOOUT_WIDTH,
++                     coords[i][1] * videoout_geometry()->scanout.height / VIDEOOUT_HEIGHT);
+                   _mm_clflush(source + offsets[i]);
+                }
+                _mm_mfence();
+@@ -1349,7 +1403,7 @@ wsi_GetPhysicalDeviceDisplayPropertiesKHR(VkPhysicalDevice physicalDevice, uint3
+          .displayName = "PS5 VideoOut",
+          /* The size of the screen VideoOut drives is not known. */
+          .physicalDimensions = {0, 0},
+-         .physicalResolution = videoout_extent,
++         .physicalResolution = videoout_geometry()->extent,
+          .supportedTransforms = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR,
+          .planeReorderPossible = VK_FALSE,
+          .persistentContent = VK_FALSE,
+@@ -1436,7 +1490,7 @@ wsi_GetDisplayModePropertiesKHR(VkPhysicalDevice physicalDevice, VkDisplayKHR di
+       {
+          *prop = (VkDisplayModePropertiesKHR){
+             .displayMode = videoout_mode_handle(modes[i]),
+-            .parameters = {.visibleRegion = videoout_extent, .refreshRate = modes[i]->refresh_millihertz},
++            .parameters = {.visibleRegion = videoout_geometry()->extent, .refreshRate = modes[i]->refresh_millihertz},
+          };
+       }
+    }
+@@ -1455,7 +1509,7 @@ wsi_GetDisplayModeProperties2KHR(VkPhysicalDevice physicalDevice, VkDisplayKHR d
+       {
+          prop->displayModeProperties = (VkDisplayModePropertiesKHR){
+             .displayMode = videoout_mode_handle(modes[i]),
+-            .parameters = {.visibleRegion = videoout_extent, .refreshRate = modes[i]->refresh_millihertz},
++            .parameters = {.visibleRegion = videoout_geometry()->extent, .refreshRate = modes[i]->refresh_millihertz},
+          };
+       }
+    }
+@@ -1473,8 +1527,8 @@ wsi_CreateDisplayModeKHR(VkPhysicalDevice physicalDevice, VkDisplayKHR display,
+    const uint32_t mode_count = videoout_modes(modes);
+    const VkDisplayModeParametersKHR *parameters = &pCreateInfo->parameters;
+    for (uint32_t i = 0; i < mode_count; i++) {
+-      if (parameters->visibleRegion.width == videoout_extent.width &&
+-          parameters->visibleRegion.height == videoout_extent.height &&
++      if (parameters->visibleRegion.width == videoout_geometry()->extent.width &&
++          parameters->visibleRegion.height == videoout_geometry()->extent.height &&
+           parameters->refreshRate == modes[i]->refresh_millihertz) {
+          *pMode = videoout_mode_handle(modes[i]);
+          return VK_SUCCESS;
+@@ -1491,12 +1545,12 @@ wsi_GetDisplayPlaneCapabilitiesKHR(VkPhysicalDevice physicalDevice, VkDisplayMod
+       .supportedAlpha = VK_DISPLAY_PLANE_ALPHA_OPAQUE_BIT_KHR,
+       .minSrcPosition = {0, 0},
+       .maxSrcPosition = {0, 0},
+-      .minSrcExtent = videoout_extent,
+-      .maxSrcExtent = videoout_extent,
++      .minSrcExtent = videoout_geometry()->extent,
++      .maxSrcExtent = videoout_geometry()->extent,
+       .minDstPosition = {0, 0},
+       .maxDstPosition = {0, 0},
+-      .minDstExtent = videoout_extent,
+-      .maxDstExtent = videoout_extent,
++      .minDstExtent = videoout_geometry()->extent,
++      .maxDstExtent = videoout_geometry()->extent,
+    };
+    return VK_SUCCESS;
+ }
+@@ -1549,8 +1603,10 @@ static VkResult
+ videoout_surface_get_support(VkIcdSurfaceBase *surface, struct wsi_device *wsi_device, uint32_t queueFamilyIndex,
+                              VkBool32 *pSupported)
+ {
+-   /* Flips come from the CPU once a frame is done, from any queue's work. */
+-   *pSupported = VK_TRUE;
++   /* Flips come from the CPU once a frame is done, from any queue's work; a
++    * 16:10 output's present also scales, which only a graphics queue does. */
++   *pSupported = !wsi_videoout_image_needs_blit() ||
++                 (wsi_device->queue_supports_graphics & BITFIELD64_BIT(queueFamilyIndex)) != 0;
+    return VK_SUCCESS;
+ }
+ 
+@@ -1565,9 +1621,9 @@ videoout_surface_get_capabilities2(VkIcdSurfaceBase *icd_surface, struct wsi_dev
+     * waiting, one being drawn. */
+    c->minImageCount = present_mode && present_mode->presentMode == VK_PRESENT_MODE_MAILBOX_KHR ? 4 : 2;
+    c->maxImageCount = VIDEOOUT_BUFFERS;
+-   c->currentExtent = videoout_extent;
+-   c->minImageExtent = videoout_extent;
+-   c->maxImageExtent = videoout_extent;
++   c->currentExtent = videoout_geometry()->extent;
++   c->minImageExtent = videoout_geometry()->extent;
++   c->maxImageExtent = videoout_geometry()->extent;
+    c->maxImageArrayLayers = 1;
+    c->supportedTransforms = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+    c->currentTransform = VK_SURFACE_TRANSFORM_IDENTITY_BIT_KHR;
+@@ -1705,16 +1761,16 @@ videoout_surface_get_present_rectangles(VkIcdSurfaceBase *surface, struct wsi_de
+ {
+    VK_OUTARRAY_MAKE_TYPED(VkRect2D, out, pRects, pRectCount);
+    vk_outarray_append_typed(VkRect2D, &out, rect)
+-      *rect = (VkRect2D){.offset = {0, 0}, .extent = videoout_extent};
++      *rect = (VkRect2D){.offset = {0, 0}, .extent = videoout_geometry()->extent};
+    return vk_outarray_status(&out);
+ }
+ 
+ /* --- Images -------------------------------------------------------------- */
+ 
+-/* A swapchain image: the framebuffer of its index, imported as host memory. */
++/* The framebuffer of an image's index, imported as host memory for target. */
+ static VkResult
+-videoout_create_image_mem(const struct wsi_swapchain *wsi_chain, const struct wsi_image_info *info,
+-                          struct wsi_image *image)
++videoout_import_framebuffer(const struct wsi_swapchain *wsi_chain, const struct wsi_image *image,
++                            VkImage target, VkDeviceMemory *memory)
+ {
+    const struct wsi_videoout_swapchain *chain = (const struct wsi_videoout_swapchain *)wsi_chain;
+    const struct wsi_device *wsi = wsi_chain->wsi;
+@@ -1722,7 +1778,7 @@ videoout_create_image_mem(const struct wsi_swapchain *wsi_chain, const struct ws
+    void *const pointer = videoout_output.set[chain->set].memory + index * VIDEOOUT_BUFFER_BYTES;
+ 
+    VkMemoryRequirements reqs;
+-   wsi->GetImageMemoryRequirements(wsi_chain->device, image->image, &reqs);
++   wsi->GetImageMemoryRequirements(wsi_chain->device, target, &reqs);
+    if (reqs.size > VIDEOOUT_BUFFER_BYTES || reqs.alignment > VIDEOOUT_BUFFER_ALIGNMENT)
+       return VK_ERROR_INITIALIZATION_FAILED;
+ 
+@@ -1749,7 +1805,67 @@ videoout_create_image_mem(const struct wsi_swapchain *wsi_chain, const struct ws
+       .allocationSize = VIDEOOUT_BUFFER_BYTES,
+       .memoryTypeIndex = wsi_select_memory_type(wsi, 0, 0, type_bits),
+    };
+-   return wsi->AllocateMemory(wsi_chain->device, &allocate, &wsi_chain->alloc, &image->memory);
++   return wsi->AllocateMemory(wsi_chain->device, &allocate, &wsi_chain->alloc, memory);
++}
++
++/* A swapchain image: the framebuffer of its index. */
++static VkResult
++videoout_create_image_mem(const struct wsi_swapchain *wsi_chain, const struct wsi_image_info *info,
++                          struct wsi_image *image)
++{
++   return videoout_import_framebuffer(wsi_chain, image, image->image, &image->memory);
++}
++
++/* A swapchain image of a 16:10 output: device memory of its own, and the
++ * framebuffer of its index as the scanout-sized image each present scales it
++ * into (wsi_cmd_blit_image_to_image). */
++static VkResult
++videoout_create_blit_image_mem(const struct wsi_swapchain *wsi_chain, const struct wsi_image_info *info,
++                               struct wsi_image *image)
++{
++   const struct wsi_device *wsi = wsi_chain->wsi;
++   VkMemoryRequirements reqs;
++   wsi->GetImageMemoryRequirements(wsi_chain->device, image->image, &reqs);
++   const VkMemoryDedicatedAllocateInfo dedicated = {
++      .sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO,
++      .image = image->image,
++   };
++   const VkMemoryAllocateInfo allocate = {
++      .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
++      .pNext = &dedicated,
++      .allocationSize = reqs.size,
++      .memoryTypeIndex = wsi_select_device_memory_type(wsi, reqs.memoryTypeBits),
++   };
++   VkResult result = wsi->AllocateMemory(wsi_chain->device, &allocate, &wsi_chain->alloc, &image->memory);
++   if (result != VK_SUCCESS)
++      return result;
++
++   const struct wsi_image_create_info scanout_info = {
++      .sType = VK_STRUCTURE_TYPE_WSI_IMAGE_CREATE_INFO_MESA,
++      .scanout = true,
++   };
++   const VkExtent2D scanout = videoout_geometry()->scanout;
++   const VkImageCreateInfo create = {
++      .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
++      .pNext = &scanout_info,
++      .imageType = VK_IMAGE_TYPE_2D,
++      .format = info->create.format,
++      .extent = {scanout.width, scanout.height, 1},
++      .mipLevels = 1,
++      .arrayLayers = 1,
++      .samples = VK_SAMPLE_COUNT_1_BIT,
++      .tiling = VK_IMAGE_TILING_OPTIMAL,
++      .usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT,
++      .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
++      .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
++   };
++   result = wsi->CreateImage(wsi_chain->device, &create, &wsi_chain->alloc, &image->blit.image);
++   if (result != VK_SUCCESS)
++      return result;
++   result = videoout_import_framebuffer(wsi_chain, image, image->blit.image, &image->blit.memory);
++   if (result != VK_SUCCESS)
++      return result;
++   return wsi->BindImageMemory(wsi_chain->device, image->blit.image, image->blit.memory, 0);
+ }
+ 
+ VkResult
+@@ -1761,6 +1877,14 @@ wsi_videoout_configure_image(const struct wsi_swapchain *chain, const VkSwapchai
+    if (result != VK_SUCCESS)
+       return result;
+ 
++   /* wsi_configure_image zeroed info, its image type too: without it the
++    * present copies the image 1:1 instead of scaling it into the region. */
++   info->image_type = WSI_IMAGE_TYPE_VIDEOOUT;
++   if (wsi_videoout_image_needs_blit()) {
++      wsi_configure_image_blit_image(chain, info);
++      info->create_mem = videoout_create_blit_image_mem;
++      return VK_SUCCESS;
++   }
+    /* Laid out as the display scans out. */
+    info->wsi.scanout = true;
+    info->create_mem = videoout_create_image_mem;
+@@ -2060,7 +2184,8 @@ videoout_surface_create_swapchain(VkIcdSurfaceBase *icd_surface, VkDevice device
+                  pixel_format, source, VIDEOOUT_HDR_CONFIG);
+       }
+    }
+-   if (pCreateInfo->imageExtent.width != VIDEOOUT_WIDTH || pCreateInfo->imageExtent.height != VIDEOOUT_HEIGHT ||
++   if (pCreateInfo->imageExtent.width != videoout_geometry()->extent.width ||
++       pCreateInfo->imageExtent.height != videoout_geometry()->extent.height ||
+        pCreateInfo->minImageCount > VIDEOOUT_BUFFERS || !wsi_device->GetMemoryHostPointerPropertiesEXT)
+       return VK_ERROR_INITIALIZATION_FAILED;
+ 
+--- /dev/null
++++ b/src/vulkan/wsi/wsi_common_videoout_geometry.h
+@@ -0,0 +1,95 @@
++/*
++ * SPDX-License-Identifier: MIT
++ */
++
++/*
++ * The PS5 VideoOut output's geometry, from PS5_VIDEOOUT_SIZE (the launcher's
++ * Output resolution): the extent the display reports and a swapchain takes,
++ * the framebuffers' scanout extent, and the region of the scanout the image
++ * fills. A 16:9 extent is the scanout itself, and VideoOut's scaler fills the
++ * screen. A 16:10 extent cannot be scanned out without a stretch, so each
++ * present scales the image into a centred 16:10 region of the 4K scanout;
++ * the columns beside it stay as the framebuffers were registered, zeroed:
++ * black. Plain C without Vulkan or Mesa, so host tests compile it as is.
++ */
++
++#ifndef WSI_COMMON_VIDEOOUT_GEOMETRY_H
++#define WSI_COMMON_VIDEOOUT_GEOMETRY_H
++
++#include <stdbool.h>
++#include <stdint.h>
++#include <string.h>
++
++/* The largest scanout, and the one 16:10 output sizes are drawn into. */
++#define VIDEOOUT_WIDTH 3840
++#define VIDEOOUT_HEIGHT 2160
++
++#ifndef VK_VERSION_1_0
++typedef struct VkExtent2D {
++   uint32_t width, height;
++} VkExtent2D;
++typedef struct VkOffset2D {
++   int32_t x, y;
++} VkOffset2D;
++#endif
++
++struct videoout_geometry {
++   VkExtent2D extent, scanout, region;
++   VkOffset2D offset;
++};
++
++/* The geometry setting names; NULL or empty is 3840x2160. false (and
++ * 3840x2160) for a size that is not one of the launcher's. */
++static inline bool
++videoout_geometry_parse(const char *setting, struct videoout_geometry *g)
++{
++   static const struct {
++      const char *name;
++      uint32_t width, height;
++   } sizes[] = {
++      {"3840x2160", 3840, 2160}, {"2560x1440", 2560, 1440}, {"1920x1080", 1920, 1080},
++      {"2560x1600", 2560, 1600}, {"1920x1200", 1920, 1200}, {"1280x800", 1280, 800},
++   };
++   uint32_t chosen = 0;
++   bool known = setting == NULL || setting[0] == '\0';
++   for (uint32_t i = 0; !known && i < sizeof(sizes) / sizeof(sizes[0]); i++) {
++      if (strcmp(setting, sizes[i].name) == 0) {
++         chosen = i;
++         known = true;
++      }
++   }
++   g->extent = (VkExtent2D){sizes[chosen].width, sizes[chosen].height};
++   if ((uint64_t)g->extent.width * 9 == (uint64_t)g->extent.height * 16) {
++      g->scanout = g->region = g->extent;
++      g->offset = (VkOffset2D){0, 0};
++   } else {
++      g->scanout = (VkExtent2D){VIDEOOUT_WIDTH, VIDEOOUT_HEIGHT};
++      g->region = (VkExtent2D){VIDEOOUT_HEIGHT * g->extent.width / g->extent.height, VIDEOOUT_HEIGHT};
++      g->offset = (VkOffset2D){(int32_t)(VIDEOOUT_WIDTH - g->region.width) / 2, 0};
++   }
++   return known;
++}
++
++/* Whether a present scales the image into a region of a larger scanout. */
++static inline bool
++videoout_geometry_needs_blit(const struct videoout_geometry *g)
++{
++   return g->extent.width != g->scanout.width || g->extent.height != g->scanout.height;
++}
++
++/* The cursor plane's position in scanout pixels for (x, y) in a space of
++ * space_width x space_height that covers the whole image: the region,
++ * never the bars beside it. The caller rejects an empty space. */
++static inline void
++videoout_geometry_cursor(const struct videoout_geometry *g, int x, int y, int space_width,
++                         int space_height, int *scanout_x, int *scanout_y)
++{
++   int64_t sx = (int64_t)x * g->region.width / space_width;
++   int64_t sy = (int64_t)y * g->region.height / space_height;
++   sx = sx < 0 ? 0 : sx > (int64_t)g->region.width - 1 ? (int64_t)g->region.width - 1 : sx;
++   sy = sy < 0 ? 0 : sy > (int64_t)g->region.height - 1 ? (int64_t)g->region.height - 1 : sy;
++   *scanout_x = g->offset.x + (int)sx;
++   *scanout_y = g->offset.y + (int)sy;
++}
++
++#endif

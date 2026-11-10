@@ -1057,7 +1057,7 @@ static int env_is(const char *name, const char *value)
 static void test_display_settings(void)
 {
     char p[1024], config[128];
-    struct forever_display display = {FOREVER_FPS_60};
+    struct forever_display display = {FOREVER_FPS_60, FOREVER_RES_AUTO};
 
     path(p, "display/drive_c/" FOREVER_DISPLAY_FILE);
     assert(!forever_display_read(p, &display) && display.frame_rate == FOREVER_FPS_OFF);
@@ -1113,6 +1113,109 @@ static void test_display_settings(void)
     assert(!forever_display_environment(&display));
     assert(env_is("VKD3D_FRAME_RATE", NULL) && env_is("DXVK_CONFIG", "dxvk.hud=fps"));
     assert(!unsetenv("DXVK_CONFIG"));
+
+    /* res= */
+    static const struct { const char *text; int error; unsigned resolution, frame_rate; } sizes[] = {
+        {"res=auto\n", 0, FOREVER_RES_AUTO, FOREVER_FPS_OFF},
+        {"res=1440p\n", 0, FOREVER_RES_1440P, FOREVER_FPS_OFF},
+        {"fps=60 res=1080p\n", 0, FOREVER_RES_1080P, FOREVER_FPS_60},
+        {"res=1600p", 0, FOREVER_RES_1600P, FOREVER_FPS_OFF},
+        {"res=1200p\n", 0, FOREVER_RES_1200P, FOREVER_FPS_OFF},
+        {"res=800p fps=30\n", 0, FOREVER_RES_800P, FOREVER_FPS_30},
+        {"res=4k\n", -EINVAL, FOREVER_RES_AUTO, FOREVER_FPS_OFF},
+        {"res=1920x1080\n", -EINVAL, FOREVER_RES_AUTO, FOREVER_FPS_OFF},
+        {"res=1080p res=800p\n", -EINVAL, FOREVER_RES_AUTO, FOREVER_FPS_OFF},
+        {"res=bad fps=120\n", -EINVAL, FOREVER_RES_AUTO, FOREVER_FPS_120}, /* one bad key */
+        {"res=800p fps=bad\n", -EINVAL, FOREVER_RES_800P, FOREVER_FPS_OFF}, /* hides neither */
+    };
+    for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++)
+    {
+        put("display/drive_c/" FOREVER_DISPLAY_FILE, sizes[i].text);
+        display.frame_rate = FOREVER_FPS_60;
+        display.resolution = FOREVER_RES_1440P;
+        assert(forever_display_read(p, &display) == sizes[i].error);
+        assert(display.resolution == sizes[i].resolution && display.frame_rate == sizes[i].frame_rate);
+    }
+    /* 16:9 sizes are the scanout; 16:10 sizes keep the 4K scanout. RenderScale
+     * keeps WoW's 3D at about 1080 lines. */
+    static const struct { unsigned value; const char *size; unsigned scanout_width; double lines; } info[] = {
+        {FOREVER_RES_AUTO, NULL, 3840, 1080}, {FOREVER_RES_1440P, "2560x1440", 2560, 1080},
+        {FOREVER_RES_1080P, "1920x1080", 1920, 1080}, {FOREVER_RES_1600P, "2560x1600", 3840, 1080},
+        {FOREVER_RES_1200P, "1920x1200", 3840, 1080}, {FOREVER_RES_800P, "1280x800", 3840, 800},
+    };
+    for (size_t i = 0; i < sizeof(info) / sizeof(info[0]); i++)
+    {
+        const struct forever_resolution_info *resolution = forever_resolution(info[i].value);
+        assert(resolution->size ? !strcmp(resolution->size, info[i].size) : !info[i].size);
+        assert(resolution->scanout_width == info[i].scanout_width);
+        assert(resolution->scanout_width * 9 == resolution->scanout_height * 16);
+        double lines = resolution->height * strtod(resolution->render_scale, NULL);
+        assert(lines > info[i].lines - 0.5 && lines < info[i].lines + 0.5);
+        assert(forever_resolution_from_size(info[i].size) == info[i].value);
+    }
+    assert(!forever_resolution(FOREVER_RES_COUNT) && !forever_resolution_token(FOREVER_RES_COUNT));
+    assert(forever_resolution_from_size("640x480") == FOREVER_RES_AUTO);
+
+    assert(!setenv("PS5_VIDEOOUT_SIZE", "1920x1080", 1)); /* inherited across LoadExec */
+    display = (struct forever_display){FOREVER_FPS_OFF, FOREVER_RES_AUTO};
+    assert(!forever_display_environment(&display));
+    assert(env_is("PS5_VIDEOOUT_SIZE", NULL)); /* Auto: RADV's own 3840x2160 */
+    display.resolution = FOREVER_RES_1600P;
+    assert(!forever_display_environment(&display));
+    assert(env_is("PS5_VIDEOOUT_SIZE", "2560x1600") && env_is("VKD3D_FRAME_RATE", NULL));
+    display.resolution = FOREVER_RES_1440P;
+    assert(!forever_display_environment(&display));
+    assert(env_is("PS5_VIDEOOUT_SIZE", "2560x1440"));
+    assert(!unsetenv("PS5_VIDEOOUT_SIZE"));
+}
+
+/* RenderScale follows the output size only where it is still a default. */
+static void test_wow_render_scale(void)
+{
+    static const char preset[] = "SET GxApi \"D3D12\"\nSET RenderScale \"0.5\"\nSET HDROutput \"1\"\n";
+    char share[1024], prefix[1024], config[1024];
+    static const char *const retail = "scale/prefix/drive_c/Program Files (x86)/World of Warcraft/_retail_/";
+
+    path(config, "scale/Config.wtf");
+    put("scale/Config.wtf", "SET a \"1\"\r\n  SET RenderScale \"0.50\"\r\nSET b \"2\"");
+    assert(forever_wow_rewrite_setting(config, "RenderScale", "0.75", "1.0") == 0); /* the user's */
+    assert(forever_wow_rewrite_setting(config, "RenderScale", "0.5", "1.0") == 1);
+    assert(text_is("scale/Config.wtf", "SET a \"1\"\r\n  SET RenderScale \"1.0\"\r\nSET b \"2\""));
+    assert(forever_wow_rewrite_setting(config, "RenderScale", NULL, "1.0") == 0);
+    assert(forever_wow_rewrite_setting(config, "RenderScale", NULL, "0.675") == 1);
+    assert(text_is("scale/Config.wtf", "SET a \"1\"\r\n  SET RenderScale \"0.675\"\r\nSET b \"2\""));
+    put("scale/Config.wtf", "SET RenderScaleX \"0.5\"\n");
+    assert(forever_wow_rewrite_setting(config, "RenderScale", NULL, "1.0") == 0); /* no such line */
+    assert(text_is("scale/Config.wtf", "SET RenderScaleX \"0.5\"\n"));
+    put("scale/Config.wtf", "SET RenderScale \"0.5\"\nSET RenderScale \"0.5\"\n");
+    assert(forever_wow_rewrite_setting(config, "RenderScale", NULL, "1.0") == -EINVAL);
+    put("scale/Config.wtf", "SET RenderScale \"fast\"\n");
+    assert(forever_wow_rewrite_setting(config, "RenderScale", "0.5", "1.0") == 0);
+    path(config, "scale/missing.wtf");
+    assert(forever_wow_rewrite_setting(config, "RenderScale", NULL, "1.0") == -ENOENT);
+
+    /* A preset installed now takes the prefix's output size. */
+    path(share, "scale/share");
+    path(prefix, "scale/prefix");
+    put("scale/share/Config.wtf", preset);
+    char exe[512], wtf[512];
+    snprintf(exe, sizeof(exe), "%sWow.exe", retail);
+    snprintf(wtf, sizeof(wtf), "%sWTF/Config.wtf", retail);
+    put(exe, "MZ");
+    assert(forever_install_wow_config(share, prefix) == 1); /* no display file: Auto */
+    assert(text_is(wtf, preset));
+    path(config, wtf);
+    assert(!unlink(config));
+    put("scale/prefix/drive_c/" FOREVER_DISPLAY_FILE, "fps=60 res=1200p\n");
+    assert(forever_install_wow_config(share, prefix) == 1);
+    assert(text_is(wtf, "SET GxApi \"D3D12\"\nSET RenderScale \"0.9\"\nSET HDROutput \"1\"\n"));
+    put("scale/prefix/drive_c/" FOREVER_DISPLAY_FILE, "res=1080p\n");
+    assert(forever_install_wow_config(share, prefix) == 0); /* an existing file stays */
+    assert(text_is(wtf, "SET GxApi \"D3D12\"\nSET RenderScale \"0.9\"\nSET HDROutput \"1\"\n"));
+    assert(!unlink(config));
+    put("scale/prefix/drive_c/" FOREVER_DISPLAY_FILE, "res=bogus\n");
+    assert(forever_install_wow_config(share, prefix) == 1); /* a bad value is Auto */
+    assert(text_is(wtf, preset));
 }
 
 static void test_standard_folders(void)
@@ -1282,6 +1385,7 @@ int main(int argc, char **argv)
     test_managed_repair_log_cap();
     test_wow_config();
     test_display_settings();
+    test_wow_render_scale();
     test_standard_folders();
     test_permission_message();
 cleanup:;

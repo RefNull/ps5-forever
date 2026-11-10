@@ -1997,6 +1997,7 @@ int forever_title_menu_load(struct forever_menu_values *values)
         &values->invert_scroll, &values->voice);
     int display_error = forever_display_read(FOREVER_DRIVE_C "/" FOREVER_DISPLAY_FILE, &display);
     values->frame_rate = (int)display.frame_rate;
+    values->resolution = (int)display.resolution;
     return error ? error : display_error;
 }
 
@@ -2932,6 +2933,17 @@ int forever_title_menu_action(enum forever_menu_command command, int enabled)
                " value=fps=%s result=%d",
                forever_frame_rate_token((unsigned)enabled) ?
                    forever_frame_rate_token((unsigned)enabled) : "invalid", result);
+#endif
+        return result;
+    case FOREVER_MENU_COMMAND_SET_RESOLUTION:
+        result = forever_menu_set_resolution(FOREVER_PREFIX, enabled);
+        permission_message = forever_setting_permission_message(result);
+        if (permission_message) forever_say(permission_message);
+#ifdef FOREVER_MENU_DIAG
+        io_log("menu diag action file=" FOREVER_DRIVE_C "/" FOREVER_DISPLAY_FILE
+               " value=res=%s result=%d",
+               forever_resolution_token((unsigned)enabled) ?
+                   forever_resolution_token((unsigned)enabled) : "invalid", result);
 #endif
         return result;
     case FOREVER_MENU_COMMAND_SET_HUD:
@@ -4133,12 +4145,16 @@ int main(int argc, char **argv)
     int display_read = forever_display_read(FOREVER_DRIVE_C "/" FOREVER_DISPLAY_FILE, &display);
     if (forever_display_environment(&display)) return 1;
     const char *frame_rate = getenv("VKD3D_FRAME_RATE"), *dxvk_config = getenv("DXVK_CONFIG");
+    const char *videoout_size = getenv("PS5_VIDEOOUT_SIZE");
     fprintf(stderr, "title gpu env: hdr_output=%s PROTON_ENABLE_HDR=%s DXVK_HDR=%s "
-            "display_file=%d fps=%s VKD3D_FRAME_RATE=%s DXVK_CONFIG=%s\n",
+            "display_file=%d fps=%s VKD3D_FRAME_RATE=%s DXVK_CONFIG=%s "
+            "res=%s PS5_VIDEOOUT_SIZE=%s\n",
             hdr_output ? "on" : "off",
             enable_hdr ? enable_hdr : "(unset)", dxvk_hdr ? dxvk_hdr : "(unset)",
             display_read, forever_frame_rate_token(display.frame_rate),
-            frame_rate ? frame_rate : "(unset)", dxvk_config ? dxvk_config : "(unset)");
+            frame_rate ? frame_rate : "(unset)", dxvk_config ? dxvk_config : "(unset)",
+            forever_resolution_token(display.resolution),
+            videoout_size ? videoout_size : "(unset)");
     fprintf(stderr, "title gpu diagnostics: present_mode=%s videoout_stats=%s queue_profile=%s "
             "cpu_profile=%s vkd3d_config=%s hdr_mode=%s query_trace=%s\n",
             getenv("VKD3D_SWAPCHAIN_PRESENT_MODE") ? getenv("VKD3D_SWAPCHAIN_PRESENT_MODE") : "(game)",

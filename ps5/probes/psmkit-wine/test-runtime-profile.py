@@ -120,6 +120,7 @@ gpu_environment = native_startup.split('if (native_runtime.payload_spawn', 1)[1]
 assert 'forever_display_read(FOREVER_DRIVE_C "/" FOREVER_DISPLAY_FILE, &display)' in gpu_environment
 assert 'if (forever_display_environment(&display)) return 1;' in gpu_environment
 assert 'VKD3D_FRAME_RATE=%s DXVK_CONFIG=%s' in gpu_environment
+assert 'res=%s PS5_VIDEOOUT_SIZE=%s' in gpu_environment
 assert 'forever_display_environment' not in common_environment
 # Only intercepted Play commands publish launch state. Replaying/falling back
 # must not turn a synthesized direct command into a purported Play record.

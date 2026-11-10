@@ -158,6 +158,10 @@ close, or click with a mouse. The menu can:
 - turn frame generation, HDR and the performance overlay on or off;
 - set a **Frame rate cap** for games: Off (the game decides), 30, 60 or 120 fps
   (120 needs a 120 Hz TV); a game's own lower cap still applies;
+- set the **Output resolution** games see: Auto (3840x2160), 1440p, 1080p, or
+  16:10 1600p (2560x1600), 1200p (1920x1200) and 800p (1280x800, the Steam
+  Deck's size). A 16:10 image keeps its shape, with black bars at the sides;
+  the Battle.net desktop stays 1920x1080;
 - turn **Invert mouse scroll** on or off (USB mouse wheel only; on by default);
 - turn **Voice-to-Text** On/Off (first use downloads a **190 MB speech model**);
 - browse, install, update and remove add-ons for the selected WoW version;
@@ -205,10 +209,10 @@ other sources work without one.
 
 If frame generation currently uses `fg=auto`, selecting it turns it off;
 selecting it again turns it on. Frame generation and the performance overlay
-use their live settings files; HDR and the frame rate cap apply the next time
-a game starts. The cap is `fps=` in `C:\wineps5-display.txt` and reaches
-Direct3D 12 games through vkd3d-proton and Direct3D 9 to 11 games through
-DXVK. After removing Battle.net, close and start Forever Launcher to install it
+use their live settings files; HDR, the frame rate cap and the output
+resolution apply the next time a game starts. The cap and the resolution are
+`fps=` and `res=` in `C:\wineps5-display.txt`; the cap reaches Direct3D 12
+games through vkd3d-proton and Direct3D 9 to 11 games through DXVK. After removing Battle.net, close and start Forever Launcher to install it
 again.
 
 ## Frame generation
@@ -261,7 +265,11 @@ WoW starts with settings tuned for the PS5: 4K output at half render scale
 (1080p), a 60 fps cap, HDR on, and the controller enabled. Each detected installed channel gets the
 preset only when its own `WTF/Config.wtf` is missing. Existing settings are not
 overwritten. The Forever menu changes only `HDROutput` for every detected
-channel, leaving other settings, including `HDRFactor`, alone.
+channel, leaving other settings, including `HDRFactor`, alone. The output
+resolution sets `RenderScale` so WoW draws its 3D at about 1080 lines: 0.5 at
+Auto, 0.75 at 1440p, 1.0 at 1080p, 0.675 at 1600p, 0.9 at 1200p and 1.0 at
+800p. A preset gets the value when it is installed; an existing file changes
+only while its `RenderScale` is still the value for the previous resolution.
 
 Automatic discovery currently scans
 `C:\Program Files (x86)\World of Warcraft`. Custom C: or W: installations can

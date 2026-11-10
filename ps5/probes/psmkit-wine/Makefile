@@ -125,7 +125,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 		$(HOST_OUT)/test-forever-menu-diag \
 		$(HOST_OUT)/test-title-icon $(HOST_OUT)/test-desktop-surface \
 		$(HOST_OUT)/test-cursor $(HOST_OUT)/test-cursor-hub \
-		$(HOST_OUT)/test-cursor-peer $(HOST_OUT)/test-file-security \
+		$(HOST_OUT)/test-cursor-peer $(HOST_OUT)/test-file-security $(HOST_OUT)/test-videoout-geometry \
 		$(PE_OUT)/audio-tone.exe test-startup-routing test-runtime-profile test-forever-unpack test-build-speed test-pins \
 		../../tools/test-ps5-capture.py
 	$(HOST_OUT)/test-protocol
@@ -187,6 +187,7 @@ test: $(HOST_OUT)/test-protocol $(HOST_OUT)/test-supervisor-admission $(HOST_OUT
 	$(HOST_OUT)/test-cursor-hub
 	$(HOST_OUT)/test-cursor-peer
 	$(HOST_OUT)/test-file-security
+	$(HOST_OUT)/test-videoout-geometry
 	python3 ../../tools/test-ps5-capture.py
 
 $(HOST_OUT)/test-fd-parking: test-fd-parking.c build-fd-parking-test.py $(WINE_SRC)/server/fd.c
@@ -464,6 +465,17 @@ $(HOST_OUT)/test-runtime-input: test-runtime-input.c runtime-input.c ../../title
 		$(WINE_SRC)/include/wine/ps5_title_gamepad.h
 	mkdir -p $(HOST_OUT)
 	$(HOST_CC) -std=gnu11 -O2 -g -Wall -Wextra -Werror -pthread -I "$(WINE_SRC)/include" test-runtime-input.c ../../title/pointer.c ../../title/voice-state.c -o $@
+
+# The geometry header RADV patch 0095 adds, taken from the patch as is.
+VIDEOOUT_PATCH := ../../radv/patches/0095-videoout-runtime-output-size.patch
+$(HOST_OUT)/videoout/wsi_common_videoout_geometry.h: $(VIDEOOUT_PATCH)
+	mkdir -p $(@D)
+	awk '/^\+\+\+ b\/src\/vulkan\/wsi\/wsi_common_videoout_geometry\.h$$/ {f = 1; next} \
+		f && /^(--- |@@ )/ {if ($$0 ~ /^--- /) f = 0; next} f && /^\+/ {print substr($$0, 2)}' $< > $@
+	grep -q videoout_geometry_cursor $@
+
+$(HOST_OUT)/test-videoout-geometry: test-videoout-geometry.c $(HOST_OUT)/videoout/wsi_common_videoout_geometry.h
+	$(HOST_CC) -std=gnu11 -O2 -g -Wall -Wextra -Werror -I $(HOST_OUT)/videoout $< -o $@
 
 $(HOST_OUT)/test-title-input: test-title-input.c ../../title/input.c ../../title/input.h
 	mkdir -p $(HOST_OUT)

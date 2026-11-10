@@ -640,7 +640,7 @@ static void test_download_redirects(void)
 static void test_mouse_scroll_menu(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0, 0, 0};
     struct forever_menu_result result;
     char text[FOREVER_MENU_TEXT_BYTES];
     forever_menu_init(&menu);
@@ -679,7 +679,7 @@ static void test_mouse_scroll_menu(void)
 static void test_frame_rate_menu(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0, 0, 0};
     static const char *const shown[] = {
         "Frame rate cap\tOff\n", "Frame rate cap\t30 fps\n", "Frame rate cap\t60 fps\n",
         "Frame rate cap\t120 fps (120 Hz TV)\n"};
@@ -691,14 +691,11 @@ static void test_frame_rate_menu(void)
     forever_menu_init(&menu);
     forever_menu_open(&menu, &values);
     forever_menu_render(&menu, text, sizeof(text));
-    assert(strstr(text, " HDR\tOn\n  Frame rate cap\tOff\n  Performance overlay\tOff\n"));
+    assert(strstr(text, " HDR\tOn\n  Frame rate cap\tOff\n  Output resolution\tAuto (4K)\n"));
     assert(FOREVER_MENU_LINE_FRAME_RATE == FOREVER_MENU_LINE_HDR + 1);
-    assert(FOREVER_MENU_LINE_HUD == FOREVER_MENU_LINE_FRAME_RATE + 1);
     forever_menu_move(&menu, 1);
     forever_menu_move(&menu, 1);
     assert(menu.selected == FOREVER_MENU_FRAME_RATE);
-    forever_menu_move(&menu, 1);
-    assert(menu.selected == FOREVER_MENU_HUD);
 
     make_path(path, sizeof(path), "display/drive_c/" FOREVER_DISPLAY_FILE);
     put("display/drive_c/" FOREVER_DISPLAY_FILE, "keep=1\tfps=bogus\n");
@@ -731,10 +728,94 @@ static void test_frame_rate_menu(void)
     assert(text_is("display/new/" FOREVER_DISPLAY_FILE, "fps=60\n"));
 }
 
+/* Output resolution: one row cycling Auto/1440p/1080p and the 16:10 sizes,
+ * saved as res=; WoW's RenderScale follows only while it is the default. */
+static void test_resolution_menu(void)
+{
+    static struct forever_menu_state menu;
+    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0, 0, 0};
+    static const char *const shown[] = {
+        "Output resolution\tAuto (4K)\n", "Output resolution\t1440p\n",
+        "Output resolution\t1080p\n", "Output resolution\t1600p (16:10)\n",
+        "Output resolution\t1200p (16:10)\n", "Output resolution\t800p (16:10)\n"};
+    static const char *const saved[] = {
+        "res=auto", "res=1440p", "res=1080p", "res=1600p", "res=1200p", "res=800p"};
+    static const char *const scale[] = {"0.5", "0.75", "1.0", "0.675", "0.9", "1.0"};
+    static const char *const wow = "res/prefix/drive_c/Program Files (x86)/World of Warcraft/";
+    struct forever_display display;
+    struct forever_menu_result result;
+    char text[FOREVER_MENU_TEXT_BYTES], prefix[1024], path[1024], expected[160], relative[512];
+
+    forever_menu_init(&menu);
+    forever_menu_open(&menu, &values);
+    forever_menu_render(&menu, text, sizeof(text));
+    assert(strstr(text, "  Frame rate cap\tOff\n  Output resolution\tAuto (4K)\n  Performance overlay\tOff\n"));
+    assert(FOREVER_MENU_LINE_RESOLUTION == FOREVER_MENU_LINE_FRAME_RATE + 1);
+    assert(FOREVER_MENU_LINE_HUD == FOREVER_MENU_LINE_RESOLUTION + 1);
+    for (int i = 0; i < 3; i++) forever_menu_move(&menu, 1);
+    assert(menu.selected == FOREVER_MENU_RESOLUTION);
+    forever_menu_move(&menu, 1);
+    assert(menu.selected == FOREVER_MENU_HUD);
+
+    make_path(prefix, sizeof(prefix), "res/prefix");
+    make_path(path, sizeof(path), "res/prefix/drive_c/" FOREVER_DISPLAY_FILE);
+    snprintf(relative, sizeof(relative), "%s_retail_/Wow.exe", wow);
+    put(relative, "MZ");
+    snprintf(relative, sizeof(relative), "%s_retail_/WTF/Config.wtf", wow);
+    put(relative, "SET a \"1\"\nSET RenderScale \"0.5\"\n");
+    snprintf(relative, sizeof(relative), "%s_classic_/WowClassic.exe", wow);
+    put(relative, "MZ");
+    snprintf(relative, sizeof(relative), "%s_classic_/WTF/Config.wtf", wow);
+    put(relative, "SET RenderScale \"0.8\"\n"); /* the user's own */
+    snprintf(relative, sizeof(relative), "%s_classic_era_/WowClassic.exe", wow);
+    put(relative, "MZ"); /* not started yet: its preset arrives at the next start */
+    put("res/prefix/drive_c/" FOREVER_DISPLAY_FILE, "fps=60\n");
+    for (int step = 1; step <= FOREVER_RESOLUTION_CHOICES; step++)
+    {
+        int next = step % FOREVER_RESOLUTION_CHOICES;
+        result = step == 1 ? forever_menu_click_line(&menu, FOREVER_MENU_LINE_RESOLUTION)
+                           : forever_menu_select(&menu);
+        assert(menu.selected == FOREVER_MENU_RESOLUTION);
+        assert(result.command == FOREVER_MENU_COMMAND_SET_RESOLUTION && result.enabled == next);
+        assert(menu.values.resolution == step - 1); /* commit only after a successful save */
+        assert(!forever_menu_set_resolution(prefix, result.enabled));
+        snprintf(expected, sizeof(expected), "fps=60\n%s\n", saved[next]);
+        assert(text_is("res/prefix/drive_c/" FOREVER_DISPLAY_FILE, expected));
+        assert(!forever_display_read(path, &display) && display.resolution == (unsigned)next);
+        assert(display.frame_rate == FOREVER_FPS_60);
+        snprintf(expected, sizeof(expected), "SET a \"1\"\nSET RenderScale \"%s\"\n", scale[next]);
+        snprintf(relative, sizeof(relative), "%s_retail_/WTF/Config.wtf", wow);
+        assert(text_is(relative, expected));
+        snprintf(relative, sizeof(relative), "%s_classic_/WTF/Config.wtf", wow);
+        assert(text_is(relative, "SET RenderScale \"0.8\"\n"));
+        forever_menu_commit(&menu, result.command, result.enabled);
+        assert(menu.values.resolution == next);
+        assert(!strcmp(menu.status, "Applies the next time a game starts."));
+        forever_menu_render(&menu, text, sizeof(text));
+        assert(strstr(text, shown[next]));
+    }
+    /* A RenderScale the user changed after a size change stays as well. */
+    snprintf(relative, sizeof(relative), "%s_retail_/WTF/Config.wtf", wow);
+    put(relative, "SET RenderScale \"0.6\"\n");
+    assert(!forever_menu_set_resolution(prefix, FOREVER_RES_1080P));
+    assert(text_is(relative, "SET RenderScale \"0.6\"\n"));
+    assert(!forever_menu_set_resolution(prefix, FOREVER_RES_1080P)); /* unchanged size */
+    forever_menu_commit(&menu, FOREVER_MENU_COMMAND_SET_RESOLUTION, FOREVER_RESOLUTION_CHOICES);
+    assert(menu.values.resolution == 0);
+    assert(forever_menu_set_resolution(prefix, FOREVER_RESOLUTION_CHOICES) == -EINVAL);
+    assert(forever_menu_set_resolution(prefix, -1) == -EINVAL);
+    assert(text_is("res/prefix/drive_c/" FOREVER_DISPLAY_FILE, "fps=60\nres=1080p\n"));
+    put("res/prefix/drive_c/" FOREVER_DISPLAY_FILE, "res=huge\n"); /* bad value: was Auto */
+    put(relative, "SET RenderScale \"0.5\"\n");
+    assert(!forever_menu_set_resolution(prefix, FOREVER_RES_1440P));
+    assert(text_is(relative, "SET RenderScale \"0.75\"\n"));
+    assert(text_is("res/prefix/drive_c/" FOREVER_DISPLAY_FILE, "res=1440p\n"));
+}
+
 static void test_voice_menu(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 0, 0, 0, 0};
     struct forever_menu_result result;
     char text[FOREVER_MENU_TEXT_BYTES];
     forever_menu_init(&menu);
@@ -866,7 +947,7 @@ static void test_key_rewrite(void)
 static void test_frame_generation_lossless_only(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_OFF, 1, 0, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_OFF, 1, 0, 0, 0, 0, 0};
     char path[1024], lossless[1024], none[1024], text[FOREVER_MENU_TEXT_BYTES];
     enum forever_frame_generation fg_mode = FOREVER_FG_OFF;
     int hdr = -1, hud = -1, invert_scroll = -1, voice = -1;
@@ -988,7 +1069,7 @@ static void test_deletion_scope(void)
 
 static void open_find(struct forever_menu_state *menu, struct forever_addon_snapshot *snapshot)
 {
-    struct forever_menu_values values = {FOREVER_FG_AUTO, 1, 0, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_AUTO, 1, 0, 0, 0, 0, 0};
     forever_menu_init(menu);
     forever_menu_open(menu, &values);
     menu->page = FOREVER_MENU_ADDON_PAGE;
@@ -1137,7 +1218,7 @@ static void test_find_search_and_github(void)
 static void test_exit_menu(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 1, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_ON, 1, 0, 1, 0, 0, 0};
     char text[FOREVER_MENU_TEXT_BYTES];
     const char *close_row, *exit_row;
 
@@ -1198,7 +1279,7 @@ static void test_exit_menu(void)
 static void test_state_machine(void)
 {
     static struct forever_menu_state menu;
-    struct forever_menu_values values = {FOREVER_FG_AUTO, 1, 0, 0, 0, 0};
+    struct forever_menu_values values = {FOREVER_FG_AUTO, 1, 0, 0, 0, 0, 0};
     static struct forever_addon_snapshot snapshot = {.tab = FOREVER_ADDON_FIND};
     struct forever_menu_result result;
     char text[FOREVER_MENU_TEXT_BYTES];
@@ -1214,6 +1295,8 @@ static void test_state_machine(void)
     forever_menu_move(&menu, 1);
     forever_menu_move(&menu, 1);
     assert(menu.selected == FOREVER_MENU_FRAME_RATE);
+    forever_menu_move(&menu, 1);
+    assert(menu.selected == FOREVER_MENU_RESOLUTION);
     forever_menu_move(&menu, 1);
     forever_menu_move(&menu, 1);
     assert(menu.selected == FOREVER_MENU_INVERT_SCROLL);
@@ -1441,6 +1524,7 @@ int main(void)
     test_download_redirects();
     test_mouse_scroll_menu();
     test_frame_rate_menu();
+    test_resolution_menu();
     test_voice_menu();
     test_hdr_config();
     test_deletion_scope();

@@ -18,6 +18,8 @@
 
 _Static_assert(FOREVER_FRAME_RATE_CHOICES == FOREVER_FPS_COUNT,
                "menu rows and display-file tokens list the same frame-rate caps");
+_Static_assert(FOREVER_RESOLUTION_CHOICES == FOREVER_RES_COUNT,
+               "menu rows and display-file tokens list the same output sizes");
 
 static inline int forever_menu_read_switch(const char *path, const char *key, int fallback,
                                             int *enabled)
@@ -173,6 +175,43 @@ static inline int forever_menu_set_frame_rate(const char *path, int value)
 {
     const char *token = value < 0 ? NULL : forever_frame_rate_token((unsigned)value);
     return token ? forever_menu_rewrite_value(path, "fps", token) : -EINVAL;
+}
+
+struct forever_wow_scale_context { const char *from, *to; int changed; };
+static inline int forever_wow_scale_visit(const struct wow_channel *channel, void *opaque)
+{
+    struct forever_wow_scale_context *context = opaque;
+    char config[WOW_PATH_BYTES];
+    int error;
+    if (!channel->executable[0]) return 0;
+    if ((error = wow_join(config, sizeof(config), channel->unix_cwd, "WTF/Config.wtf"))) return error;
+    error = forever_wow_rewrite_setting(config, "RenderScale", context->from, context->to);
+    if (error == -ENOENT) return 0; /* the preset arrives at the next start */
+    if (error < 0) return error;
+    context->changed += error;
+    return 0;
+}
+
+/* Save res= in the prefix's display file. Each channel's RenderScale follows
+ * only while it is still the default for the previous size; one the user
+ * chose stays. 0 or -errno. */
+static inline int forever_menu_set_resolution(const char *prefix, int value)
+{
+    char path[WOW_PATH_BYTES];
+    struct forever_display display;
+    const char *token = value < 0 ? NULL : forever_resolution_token((unsigned)value);
+    int error;
+    if (!token) return -EINVAL;
+    if ((error = forever_display_path(path, sizeof(path), prefix))) return error;
+    forever_display_read(path, &display); /* any error: Auto */
+    if (display.resolution != (unsigned)value)
+    {
+        struct forever_wow_scale_context context = {
+            forever_resolution(display.resolution)->render_scale,
+            forever_resolution((unsigned)value)->render_scale, 0};
+        if ((error = wow_channels_scan(prefix, forever_wow_scale_visit, &context))) return error;
+    }
+    return forever_menu_rewrite_value(path, "res", token);
 }
 
 /* Preserve every byte except the single HDROutput digit; append the setting

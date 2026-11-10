@@ -208,9 +208,10 @@ static inline int forever_menu_switch_span(const char *text, size_t size, const 
 }
 
 /* C:\wineps5-display.txt: the game role's display settings, written by the
- * Forever menu and read at each game start (fps=off|30|60|120). A missing
- * file or key means Off; a duplicate key or an unknown value is refused and
- * also means Off. */
+ * Forever menu and read at each game start (fps=off|30|60|120,
+ * res=auto|1440p|1080p|1600p|1200p|800p). A missing file or key means
+ * Off/Auto; a duplicate key or an unknown value is refused and also means
+ * Off/Auto for that key. */
 #define FOREVER_DISPLAY_FILE "wineps5-display.txt"
 #define FOREVER_DISPLAY_BYTES 4096
 
@@ -235,9 +236,58 @@ static inline unsigned forever_frame_rate_fps(unsigned value)
     return value < FOREVER_FPS_COUNT ? fps[value] : 0;
 }
 
+/* Output sizes Windows and the game see. 16:9 sizes are VideoOut's scanout
+ * size and its scaler fills the TV; 16:10 sizes are drawn into a centred
+ * 16:10 region of the 4K scanout with black bars at the sides, never
+ * stretched (ps5/radv/patches/0095). Auto is 3840x2160 and sets nothing. */
+enum forever_resolution
+{
+    FOREVER_RES_AUTO,
+    FOREVER_RES_1440P,
+    FOREVER_RES_1080P,
+    FOREVER_RES_1600P,
+    FOREVER_RES_1200P,
+    FOREVER_RES_800P,
+    FOREVER_RES_COUNT,
+};
+
+struct forever_resolution_info
+{
+    const char *token, *size; /* size: PS5_VIDEOOUT_SIZE, NULL for Auto */
+    unsigned width, height, scanout_width, scanout_height;
+    const char *render_scale; /* WoW's default RenderScale: about 1080-line 3D */
+};
+
+static inline const struct forever_resolution_info *forever_resolution(unsigned value)
+{
+    static const struct forever_resolution_info table[FOREVER_RES_COUNT] = {
+        {"auto", NULL, 3840, 2160, 3840, 2160, "0.5"},
+        {"1440p", "2560x1440", 2560, 1440, 2560, 1440, "0.75"},
+        {"1080p", "1920x1080", 1920, 1080, 1920, 1080, "1.0"},
+        {"1600p", "2560x1600", 2560, 1600, 3840, 2160, "0.675"},
+        {"1200p", "1920x1200", 1920, 1200, 3840, 2160, "0.9"},
+        {"800p", "1280x800", 1280, 800, 3840, 2160, "1.0"},
+    };
+    return value < FOREVER_RES_COUNT ? &table[value] : NULL;
+}
+
+static inline const char *forever_resolution_token(unsigned value)
+{
+    return value < FOREVER_RES_COUNT ? forever_resolution(value)->token : NULL;
+}
+
+/* The resolution PS5_VIDEOOUT_SIZE names; Auto for none or another value. */
+static inline unsigned forever_resolution_from_size(const char *size)
+{
+    for (unsigned i = 1; size && i < FOREVER_RES_COUNT; i++)
+        if (!strcmp(size, forever_resolution(i)->size)) return i;
+    return FOREVER_RES_AUTO;
+}
+
 struct forever_display
 {
     unsigned frame_rate; /* enum forever_frame_rate */
+    unsigned resolution; /* enum forever_resolution */
 };
 
 /* The index of key's value among token(0..count-1). Absent: 0 and *index
@@ -258,17 +308,28 @@ static inline int forever_display_choice(const char *text, size_t size, const ch
     return -EINVAL;
 }
 
+static inline int forever_display_path(char *path, size_t size, const char *prefix)
+{
+    int length = snprintf(path, size, "%s/drive_c/" FOREVER_DISPLAY_FILE, prefix);
+    return length < 0 || (size_t)length >= size ? -ENAMETOOLONG : 0;
+}
+
 /* Every value is valid on return; the result is 0 or the first error. */
 static inline int forever_display_read(const char *path, struct forever_display *display)
 {
     char text[FOREVER_DISPLAY_BYTES];
     ssize_t size;
+    int fps, res;
     display->frame_rate = FOREVER_FPS_OFF;
+    display->resolution = FOREVER_RES_AUTO;
     size = forever_read_file(path, text, sizeof(text));
     if (size == -ENOENT) return 0;
     if (size < 0) return (int)size;
-    return forever_display_choice(text, (size_t)size, "fps", forever_frame_rate_token,
-                                  FOREVER_FPS_COUNT, &display->frame_rate);
+    fps = forever_display_choice(text, (size_t)size, "fps", forever_frame_rate_token,
+                                 FOREVER_FPS_COUNT, &display->frame_rate);
+    res = forever_display_choice(text, (size_t)size, "res", forever_resolution_token,
+                                 FOREVER_RES_COUNT, &display->resolution);
+    return fps ? fps : res;
 }
 
 /* 1 when one ;-separated DXVK_CONFIG entry sets key. */
@@ -327,7 +388,64 @@ static inline int forever_display_environment(const struct forever_display *disp
     if ((error = forever_display_dxvk_config(getenv("DXVK_CONFIG"), fps, config, sizeof(config))))
         return error;
     if (config[0] ? setenv("DXVK_CONFIG", config, 1) : unsetenv("DXVK_CONFIG")) return -errno;
+    /* RADV's VideoOut WSI reads the output size once, when it first opens. */
+    const struct forever_resolution_info *resolution = forever_resolution(display->resolution);
+    const char *size = resolution ? resolution->size : NULL;
+    if (size ? setenv("PS5_VIDEOOUT_SIZE", size, 1) : unsetenv("PS5_VIDEOOUT_SIZE")) return -errno;
     return 0;
+}
+
+/* WoW's RenderScale multiplies on top of the output size. Change the value
+ * of one `SET key "value"` line in a Config.wtf, preserving every other byte.
+ * With from, only a value numerically equal to it is changed, so a value the
+ * user chose stays. 1 changed, 0 unchanged (also with no such line), -errno. */
+static inline int forever_wow_rewrite_setting(const char *path, const char *key,
+                                              const char *from, const char *to)
+{
+    char text[16384], output[16384 + 64], prefix[64], value[32];
+    size_t value_at = 0, value_end = 0, prefix_size;
+    ssize_t size = forever_read_file(path, text, sizeof(text));
+    int found = 0, length = snprintf(prefix, sizeof(prefix), "SET %s \"", key);
+
+    if (size < 0) return (int)size;
+    if (length < 0 || (size_t)length >= sizeof(prefix)) return -ENAMETOOLONG;
+    prefix_size = (size_t)length;
+    for (size_t start = 0; start < (size_t)size;)
+    {
+        size_t end = start, at = start;
+        while (end < (size_t)size && text[end] != '\n') end++;
+        while (at < end && (text[at] == ' ' || text[at] == '\t')) at++;
+        if (end - at > prefix_size && !memcmp(text + at, prefix, prefix_size))
+        {
+            const char *quote = memchr(text + at + prefix_size, '"', end - at - prefix_size);
+            if (quote)
+            {
+                if (found) return -EINVAL;
+                found = 1;
+                value_at = at + prefix_size;
+                value_end = (size_t)(quote - text);
+            }
+        }
+        start = end < (size_t)size ? end + 1 : end;
+    }
+    if (!found) return 0;
+    if (from)
+    {
+        char *parsed;
+        if (value_end - value_at >= sizeof(value)) return 0;
+        memcpy(value, text + value_at, value_end - value_at);
+        value[value_end - value_at] = 0;
+        double current = strtod(value, &parsed), wanted = strtod(from, NULL);
+        if (parsed == value || *parsed || current - wanted > 1e-4 || wanted - current > 1e-4)
+            return 0;
+    }
+    if (value_end - value_at == strlen(to) && !memcmp(text + value_at, to, strlen(to))) return 0;
+    if ((size_t)size - (value_end - value_at) + strlen(to) > sizeof(output)) return -EFBIG;
+    memcpy(output, text, value_at);
+    memcpy(output + value_at, to, strlen(to));
+    memcpy(output + value_at + strlen(to), text + value_end, (size_t)size - value_end);
+    length = forever_write_file(path, output, (size_t)size - (value_end - value_at) + strlen(to));
+    return length ? length : 1;
 }
 
 /* Copy between already-open descriptors. Record the failed I/O operation. */
@@ -1058,8 +1176,9 @@ static inline int forever_sync_managed(const char *app_root, const char *list_pa
     return (int)report->repaired;
 }
 
-/* Each installed executable gets the preset only if its own file is absent. */
-struct forever_wow_config_context { const char *share; int installed; };
+/* Each installed executable gets the preset only if its own file is absent;
+ * a preset just installed takes the RenderScale of the prefix's output size. */
+struct forever_wow_config_context { const char *share, *render_scale; int installed; };
 static inline int forever_wow_config_visit(const struct wow_channel *channel, void *opaque)
 {
     struct forever_wow_config_context *context = opaque;
@@ -1074,13 +1193,22 @@ static inline int forever_wow_config_visit(const struct wow_channel *channel, vo
     if ((error = wow_join(source, sizeof(source), context->share, "Config.wtf")) ||
         (error = forever_mkdirs(wtf)) ||
         (error = forever_copy_file(source, config, NULL))) return error;
+    if (strcmp(context->render_scale, forever_resolution(FOREVER_RES_AUTO)->render_scale) &&
+        (error = forever_wow_rewrite_setting(config, "RenderScale", NULL, context->render_scale)) < 0)
+        return error;
     ++context->installed;
     return 0;
 }
 static inline int forever_install_wow_config(const char *share, const char *prefix)
 {
-    struct forever_wow_config_context context = {share, 0};
-    int error = wow_channels_scan(prefix, forever_wow_config_visit, &context);
+    char display_path[WOW_PATH_BYTES];
+    struct forever_display display;
+    struct forever_wow_config_context context = {share, NULL, 0};
+    int error = forever_display_path(display_path, sizeof(display_path), prefix);
+    if (error) return error;
+    forever_display_read(display_path, &display); /* any error: Auto */
+    context.render_scale = forever_resolution(display.resolution)->render_scale;
+    error = wow_channels_scan(prefix, forever_wow_config_visit, &context);
     return error ? error : context.installed;
 }
 

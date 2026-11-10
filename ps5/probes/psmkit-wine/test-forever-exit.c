@@ -65,6 +65,13 @@ static int forever_menu_set_frame_rate(const char *path, int value)
     assert(!"the frame rate cap is not written on exit");
     return -1;
 }
+static int forever_menu_set_resolution(const char *prefix, int value)
+{
+    (void)prefix;
+    (void)value;
+    assert(!"the output resolution is not written on exit");
+    return -1;
+}
 static const char *forever_setting_permission_message(int result)
 {
     assert(!result);
