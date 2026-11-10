@@ -3,8 +3,9 @@
 
     python3 ps5/release/package.py --tag 01.000.000 [--title DIR] [--out DIR]
 
-Writes <out>/PPSA99030.zip with the PPSA99030/ app folder at its top, the
-same bytes for the same build: sorted entries, fixed times and modes. The
+Writes <out>/PPSA99030.zip with the PPSA99030/ app folder at its top (or the
+build's FOREVER_TITLE_ID, runtime_profiles.title_identity), the same bytes for
+the same build: sorted entries, fixed times and modes. The
 tag must be the content version (NN.NNN.NNN) in both the source and the
 built sce_sys/param.json. Qualification receipts stay out (they are build
 records, not read by the app). The qualified dual runtime must match the
@@ -25,9 +26,9 @@ from pathlib import Path, PurePosixPath
 HERE = Path(__file__).resolve().parent
 PS5 = HERE.parent
 sys.path.insert(0, str(PS5 / "probes/psmkit-wine"))
-from runtime_profiles import qualified_b1_folder
+from runtime_profiles import DEFAULT_TITLE_ID, qualified_b1_folder, title_identity
 
-TITLE_ID = "PPSA99030"
+TITLE_ID = title_identity()[0]
 LIMIT = 2 << 30            # the catalog's artifact limit
 EPOCH = (1980, 1, 1, 0, 0, 0)
 
@@ -37,10 +38,10 @@ RECEIPTS = frozenset(("runtime-qualification.json", "maintenance-qualification.j
 REFUSED = re.compile(r"(^|/)(lossless\.dll|drive_c|dosdevices|prefix|home|[^/]*\.reg)(/|$)", re.IGNORECASE)
 
 
-def content_version(param: Path) -> str:
+def content_version(param: Path, title_id: str) -> str:
     data = json.loads(param.read_text())
-    if data.get("titleId") != TITLE_ID:
-        raise SystemExit(f"{param}: titleId is {data.get('titleId')!r}, not {TITLE_ID}")
+    if data.get("titleId") != title_id:
+        raise SystemExit(f"{param}: titleId is {data.get('titleId')!r}, not {title_id}")
     return data.get("contentVersion", "")
 
 
@@ -186,8 +187,9 @@ def main() -> int:
     title = args.title.resolve()
     # Walk before reading parameters or receipts, including symlink directory roots.
     entries = list(members(title))
-    for param in (PS5 / "title/sce_sys/param.json", title / "sce_sys/param.json"):
-        version = content_version(param)
+    for param, title_id in ((PS5 / "title/sce_sys/param.json", DEFAULT_TITLE_ID),
+                            (title / "sce_sys/param.json", TITLE_ID)):
+        version = content_version(param, title_id)
         if version != args.tag:
             raise SystemExit(f"{param}: contentVersion {version!r} is not the tag {args.tag}")
     try:

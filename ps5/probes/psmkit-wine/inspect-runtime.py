@@ -19,7 +19,7 @@ from runtime_imports import (
 )
 from runtime_profiles import (
     ADDON_WORKER_MAX_BYTES, ADDON_WORKER_RELATIVE, WRITEBROKER_MAX_BYTES,
-    WRITEBROKER_RELATIVE, profile, runtime_tree_manifest,
+    WRITEBROKER_RELATIVE, profile, runtime_tree_manifest, title_parameters,
 )
 
 parser = argparse.ArgumentParser()
@@ -797,7 +797,7 @@ if selected.get('gpu'):
         if name not in radv_undefined:
             native_roles['parent'].pop(name)
 base_parameter = read_json(here / '../../title/sce_sys/param.json', 'source title parameters')
-expected_parameter = dict(base_parameter)
+expected_parameter = title_parameters(base_parameter)
 if selected.get('gpu', False):
     expected_parameter['attribute'] = expected_parameter.get('attribute', 0) | 0x20000000
     # Keep system VRR enabled while retaining the high-frame-rate declaration.

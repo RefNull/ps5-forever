@@ -11,6 +11,7 @@ from runtime_profiles import (
     ADDON_WORKER_MAX_BYTES, ADDON_WORKER_RELATIVE, WRITEBROKER_MAX_BYTES,
     WRITEBROKER_RELATIVE, profile, installed_paths, runtime_tree_manifest,
     b1_guard_paths, qualified_b1_folder, file_identity, builtin_prefix_files, PRODUCT_KEYS,
+    DEFAULT_TITLE_ID, title_identity, title_parameters,
 )
 from runtime_imports import (
     candidate_ownership, module_manifest, render_include, load_policy, make_records,
@@ -268,6 +269,36 @@ for key, bad in (
     else:
         raise AssertionError(f'B1 profile accepted {key}={bad!r}')
 assert profile('b1', {'installer_fallback_url': ''})['installer_fallback_url'] == ''
+# A side-by-side test app changes only the app's identity, from the environment.
+paths_sh = (Path(__file__).resolve().parents[2] / 'paths.sh').read_text()
+assert f'TITLE_ID={DEFAULT_TITLE_ID}\n' in paths_sh
+source_param = json.loads((Path(__file__).resolve().parents[2] / 'title/sce_sys/param.json').read_text())
+assert title_identity({}) == (DEFAULT_TITLE_ID, None)
+assert title_parameters(source_param, {}) == source_param
+test_app = title_parameters(source_param, {'FOREVER_TITLE_ID': 'PPSA99031',
+                                           'FOREVER_TITLE_NAME': 'Forever Steam Test'})
+assert test_app == {**source_param, 'titleId': 'PPSA99031', 'conceptId': '99031',
+                    'contentId': source_param['contentId'].replace(DEFAULT_TITLE_ID, 'PPSA99031'),
+                    'localizedParameters': {**source_param['localizedParameters'],
+                                            'en-US': {'titleName': 'Forever Steam Test'}}}
+assert 'PPSA99030' not in json.dumps(test_app)
+for environ in ({'FOREVER_TITLE_ID': 'ppsa99031'}, {'FOREVER_TITLE_ID': 'PPSA9903'},
+                {'FOREVER_TITLE_ID': 'PPSA99031/x'}, {'FOREVER_TITLE_NAME': 'a"b'},
+                {'FOREVER_TITLE_NAME': 'x' * 65}, {'FOREVER_TITLE_NAME': 'caf\u00e9'}):
+    try:
+        title_identity(environ)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f'title identity accepted {environ}')
+build_source = Path(__file__).with_name('build-runtime.py').read_text()
+assert "'#define PW_RUNTIME_TITLE_ID ' + json.dumps(title_identity()[0])" in build_source
+assert 'metadata = title_parameters(built_metadata)' in build_source
+assert 'expected_parameter = title_parameters(base_parameter)' in (
+    Path(__file__).with_name('inspect-runtime.py').read_text())
+# The broker puts the icon on WB_TITLE_ID's entry: another app must not ask.
+icon_start = native_startup.split('static void pw_title_icon_start(void)', 1)[1].split('\n}', 1)[0]
+assert icon_start.index('if (strcmp(PW_RUNTIME_TITLE_ID, WB_TITLE_ID)) return;') < icon_start.index('create_thread')
 # The title's installer path reads the product only from the profile.
 download = native_startup.split('static void b1_download_progress', 1)[1].split('#ifdef PW_PARENT_ROLE', 1)[0]
 assert 'Battle.net' not in download and 'PW_RUNTIME_PRODUCT_NAME' in download
@@ -276,7 +307,6 @@ assert 'sizeof(urls) / sizeof(urls[0]) && urls[i][0]' in download
 assert 'char *installer_args[]=PW_RUNTIME_INSTALLER_ARGV;' in native_startup
 assert 'installer ? 4 :' not in native_startup
 assert native_startup.count('PW_RUNTIME_INSTALLER_ARGC') == 2
-build_source = Path(__file__).with_name('build-runtime.py').read_text()
 assert "'/exec',\n                  selected['installer_dos'], *selected['installer_args']]" in build_source
 assert profile('b1', {'payload_programs': [r'C:\ProgramData\Battle.net\Agent\Agent.exe']})['payload_programs'] == [
     r'C:\ProgramData\Battle.net\Agent\Agent.exe']

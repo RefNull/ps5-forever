@@ -293,6 +293,11 @@ benchmark ELFs without contacting a console; see its header for console modes.
   diagnostic profile. `GetThreadTimes` is not implemented on the PS5 platform;
   use the sampler's `title vm cpu`, `title request latency` and `server queue`
   lines.
+- Side-by-side test app: set `FOREVER_TITLE_ID` (and optionally
+  `FOREVER_TITLE_NAME`) for `runtime-b1-dual` and `package.py`. Only the app's
+  identity changes: the Wine build (`ps5/paths.sh`) and the user data root
+  `/data/forever` are shared, and such an app does not set the home-screen
+  icon.
 - Write-buffer decisions: build Wine with
   `WINE_PS5_EXTRA_CFLAGS=-DWINE_PS5_WRITE_BUFFER_DIAG=1`.
 - Live switches in `C:\wineps5-tune.txt`: `write_buffer=off` (or

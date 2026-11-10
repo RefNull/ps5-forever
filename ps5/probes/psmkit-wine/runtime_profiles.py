@@ -3,7 +3,9 @@
 import hashlib
 import json
 import math
+import os
 from pathlib import Path, PurePosixPath
+import re
 
 # Payload ENV's WINEDLLOVERRIDES in ps5/deploy-wine.py (independent of title overrides).
 PAYLOAD_DLL_OVERRIDES = ('winemenubuilder.exe=d;mscoree=d;mshtml=d;winedbg.exe=d;'
@@ -105,6 +107,39 @@ def _valid_sdr_white_nits(setting):
     return (isinstance(setting, str) and 1 <= len(setting) <= 3 and
             setting.isascii() and setting.isdecimal() and
             80 <= int(setting) <= 480)
+
+
+# The app's title ID. FOREVER_TITLE_ID and FOREVER_TITLE_NAME build a side-by-side
+# test app instead; the Wine build (ps5/paths.sh) and the user data root
+# (USER_DATA_ROOT, the write broker's) stay those of this title.
+DEFAULT_TITLE_ID = 'PPSA99030'
+
+
+def title_identity(environ=None):
+    """(title ID, title name or None) for this build."""
+    environ = os.environ if environ is None else environ
+    title_id = environ.get('FOREVER_TITLE_ID') or DEFAULT_TITLE_ID
+    name = environ.get('FOREVER_TITLE_NAME') or None
+    if not re.fullmatch(r'[A-Z]{4}[0-9]{5}', title_id):
+        raise ValueError(f'FOREVER_TITLE_ID is not a title ID: {title_id!r}')
+    if name is not None and (len(name) > 64 or not name.isascii() or
+                             any(ord(char) < 32 or ord(char) == 127 or char in '"\\' for char in name)):
+        raise ValueError('FOREVER_TITLE_NAME must be up to 64 printable ASCII characters')
+    return title_id, name
+
+
+def title_parameters(param, environ=None):
+    """The app's sce_sys/param.json contents for this build's title identity."""
+    title_id, name = title_identity(environ)
+    param = json.loads(json.dumps(param))
+    if title_id != param['titleId']:
+        param['contentId'] = param['contentId'].replace(param['titleId'], title_id)
+        param['conceptId'] = title_id[4:]
+        param['titleId'] = title_id
+    if name is not None:
+        localized = param['localizedParameters']
+        localized[localized['defaultLanguage']]['titleName'] = name
+    return param
 
 
 def _dos_parts(path):

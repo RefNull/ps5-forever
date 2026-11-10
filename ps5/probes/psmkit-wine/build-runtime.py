@@ -19,6 +19,7 @@ from runtime_imports import (
 from runtime_profiles import (
     ADDON_WORKER_MAX_BYTES, ADDON_WORKER_RELATIVE, WRITEBROKER_MAX_BYTES,
     WRITEBROKER_RELATIVE, profile, runtime_tree_manifest, builtin_prefix_files,
+    title_identity, title_parameters,
 )
 
 here = Path(__file__).resolve().parent
@@ -551,6 +552,7 @@ profile_defines += '#define PW_RUNTIME_CHILD_PATH ' + json.dumps(
     '/app0/game-child.bin' if selected.get('gpu', False) else
     '/app0/psmkit-wine-runtime-child.bin') + '\n'
 profile_defines += f'#define PW_RUNTIME_HEADLESS {1 if selected["headless"] else 0}\n'
+profile_defines += '#define PW_RUNTIME_TITLE_ID ' + json.dumps(title_identity()[0]) + '\n'
 profile_defines += ''.join(
     f'#define PW_RUNTIME_{key.upper()} {json.dumps(selected[key])}\n'
     for key in ('product_name', 'installer_url', 'installer_fallback_url', 'installer_dos', 'launcher_unix',
@@ -679,10 +681,12 @@ run(['bash', here / '../../title/build.sh', parent_out, parent_wrapper,
      here / 'elf-runtime.c', here / 'protocol.c', parent_supervisor, *desktop_sources, *gpu_sources,
      *io_sources, parent_loader_object, safe_libc_archive],
     cwd=here, env=parent_env)
+parameter = parent_out / 'sce_sys/param.json'
+built_metadata = json.loads(parameter.read_text())
+metadata = title_parameters(built_metadata)
 if gpu_sources:
-    parameter = parent_out / 'sce_sys/param.json'
-    metadata = json.loads(parameter.read_text())
     metadata['attribute'] = metadata.get('attribute', 0) | 0x20000000
+if metadata != built_metadata:
     parameter.write_text(json.dumps(metadata, indent=2) + '\n')
 
 # Use Wine's own install rules for the complete PE/data layout, but copy

@@ -28,6 +28,8 @@ if [[ ${1:-} != --container ]]; then
         --env "JOBS=${JOBS:-}" \
         --env "FOREVER_BUILD_CACHE=/sources/.cache" \
         --env "FOREVER_CLEAN_CACHE=${FOREVER_CLEAN_CACHE:-0}" \
+        --env "FOREVER_TITLE_ID=${FOREVER_TITLE_ID:-}" \
+        --env "FOREVER_TITLE_NAME=${FOREVER_TITLE_NAME:-}" \
         --env "PS5_MESA_REVISION=${PS5_MESA_REVISION:-}" "$image" \
         bash /sources/ps5-proton/ps5-wow/ps5/release/build-linux.sh --container "$tag" "${@:3}"
 fi
@@ -444,4 +446,4 @@ stage runtime-b1-dual make -s -C ps5/probes/psmkit-wine runtime-b1-dual
 stage package python3 ps5/release/package.py --tag "$tag"
 python3 "$cache_helper" prune --cache "$FOREVER_BUILD_CACHE" --keep 2
 python3 "$cache_helper" size --cache "$FOREVER_BUILD_CACHE"
-printf 'BUILD_COMPLETE seconds=%s zip=%s\n' "$((SECONDS - started))" "$wow/ps5/build/release/PPSA99030.zip"
+printf 'BUILD_COMPLETE seconds=%s zip=%s\n' "$((SECONDS - started))" "$wow/ps5/build/release/${FOREVER_TITLE_ID:-PPSA99030}.zip"

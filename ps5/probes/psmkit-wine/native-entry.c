@@ -3771,7 +3771,9 @@ static void pw_title_icon_start(void)
     struct stat launcher;
     pthread_t thread;
 
-    if (stat(PW_RUNTIME_LAUNCHER_UNIX, &launcher)) return; /* Battle.net is not installed yet */
+    /* The broker copies the icon to WB_TITLE_ID's home-screen entry only. */
+    if (strcmp(PW_RUNTIME_TITLE_ID, WB_TITLE_ID)) return;
+    if (stat(PW_RUNTIME_LAUNCHER_UNIX, &launcher)) return; /* the product is not installed yet */
     if (create_thread(&thread, NULL, pw_title_icon_thread, NULL)) return;
     pthread_detach(thread);
 }
