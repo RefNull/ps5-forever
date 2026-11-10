@@ -46,7 +46,10 @@ JOBS=8 bash ps5/release/build-linux.sh /absolute/SOURCE_ROOT 01.024.001
 The tag must equal the source `sce_sys/param.json` content version. Source
 validation and the full host suite run first; the suite builds and runs its
 tests in parallel (`JOBS`) and ends with `PASS`/`FAIL` per test and a
-`HOST_TESTS result=` line. The script then builds the Docker
+`HOST_TESTS result=` line. For a local test build only,
+`FOREVER_SKIP_HOST_TESTS=1` skips the suite; the log and `BUILD_COMPLETE` say
+`host_tests=SKIPPED`, and CI refuses it. A third argument `--host-tests-only`
+runs source validation and the suite, and nothing else. The script then builds the Docker
 image, the SDK, native title tooling/clean-room libc, patched RADV,
 whisper.cpp/ggml, FreeType, GnuTLS, Wine, 64-bit vkd3d-proton and DXVK `dxgi`
 (the only graphics DLLs that ship), the patched

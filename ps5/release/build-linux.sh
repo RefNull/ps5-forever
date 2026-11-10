@@ -5,10 +5,16 @@ here=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # Every pin is read from deps.json; see pins.py.
 pin() { python3 "$here/pins.py" "$@"; }
 
+# FOREVER_SKIP_HOST_TESTS=1 skips the host suite in a local test build; CI
+# refuses it. --host-tests-only runs source validation and the suite, nothing else.
+modes='--whisper-only|--host-tests-only'
 if [[ ${1:-} != --container ]]; then
-    [[ $# == 2 || ( $# == 3 && $3 == --whisper-only ) ]] || {
-        echo "usage: $0 SOURCE_ROOT NN.NNN.NNN [--whisper-only]" >&2; exit 2;
+    [[ $# == 2 || ( $# == 3 && $3 =~ ^($modes)$ ) ]] || {
+        echo "usage: $0 SOURCE_ROOT NN.NNN.NNN [--whisper-only|--host-tests-only]" >&2; exit 2;
     }
+    if [[ ${FOREVER_SKIP_HOST_TESTS:-0} == 1 && ( -n ${CI:-} || -n ${GITHUB_ACTIONS:-} ) ]]; then
+        echo 'FOREVER_SKIP_HOST_TESTS is for local test builds; CI builds run the host suite' >&2; exit 2;
+    fi
     sources=$(cd -- "$1" && pwd)
     tag=$2
     image=forever-launcher-linux:ubuntu-24.04
@@ -28,14 +34,15 @@ if [[ ${1:-} != --container ]]; then
         --env "JOBS=${JOBS:-}" \
         --env "FOREVER_BUILD_CACHE=/sources/.cache" \
         --env "FOREVER_CLEAN_CACHE=${FOREVER_CLEAN_CACHE:-0}" \
+        --env "FOREVER_SKIP_HOST_TESTS=${FOREVER_SKIP_HOST_TESTS:-0}" \
         --env "FOREVER_TITLE_ID=${FOREVER_TITLE_ID:-}" \
         --env "FOREVER_TITLE_NAME=${FOREVER_TITLE_NAME:-}" \
         --env "PS5_MESA_REVISION=${PS5_MESA_REVISION:-}" "$image" \
         bash /sources/ps5-proton/ps5-wow/ps5/release/build-linux.sh --container "$tag" "${@:3}"
 fi
-[[ ( $# == 2 || ( $# == 3 && $3 == --whisper-only ) ) &&
+[[ ( $# == 2 || ( $# == 3 && $3 =~ ^($modes)$ ) ) &&
    $(uname -s) == Linux && $(uname -m) == x86_64 ]] || {
-    echo 'the container entry requires Linux x86_64, a content-version tag and optional --whisper-only' >&2; exit 2;
+    echo 'the container entry requires Linux x86_64, a content-version tag and optional --whisper-only or --host-tests-only' >&2; exit 2;
 }
 tag=$2
 root=/sources
@@ -417,6 +424,11 @@ host_tests() {
         "$result" "$passed" "${#failed[@]}" "$status"
     [[ $result == PASS ]]
 }
+skip_host_tests_banner() {
+    printf '\n%s\n' '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+    printf '!!! HOST_TESTS SKIPPED (FOREVER_SKIP_HOST_TESTS=1): test build only, not a release\n'
+    printf '%s\n' '!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!'
+}
 # Free space for what this run still writes; the image and sources already
 # exist. A measured cold run grew the cache by 4.8 GiB and the build tree by
 # 7.2 GiB; cache hits are symlinks, so a warm run writes at most that tree.
@@ -452,8 +464,20 @@ if [[ ${3:-} == --whisper-only ]]; then
 fi
 trap cleanup EXIT
 stage inputs validate_sources
+if [[ ${3:-} == --host-tests-only ]]; then
+    stage host-tests host_tests
+    printf 'BUILD_COMPLETE seconds=%s stage=host-tests\n' "$((SECONDS - started))"
+    exit 0
+fi
 stage disk check_disk
-stage host-tests host_tests
+host_tests_state=PASS
+if [[ ${FOREVER_SKIP_HOST_TESTS:-0} == 1 ]]; then
+    host_tests_state=SKIPPED
+    skip_host_tests_banner
+    printf 'host-tests\t0\tskipped\n' >> "$logs/timings.tsv"
+else
+    stage host-tests host_tests
+fi
 stage sdk build_sdk
 stage host-tools build_host_tools
 stage radv build_radv_cached
@@ -471,4 +495,6 @@ stage runtime-b1-dual make -s -C ps5/probes/psmkit-wine runtime-b1-dual
 stage package python3 ps5/release/package.py --tag "$tag"
 python3 "$cache_helper" prune --cache "$FOREVER_BUILD_CACHE" --keep 2
 python3 "$cache_helper" size --cache "$FOREVER_BUILD_CACHE"
-printf 'BUILD_COMPLETE seconds=%s zip=%s\n' "$((SECONDS - started))" "$wow/ps5/build/release/${FOREVER_TITLE_ID:-PPSA99030}.zip"
+[[ $host_tests_state == PASS ]] || skip_host_tests_banner
+printf 'BUILD_COMPLETE seconds=%s host_tests=%s zip=%s\n' "$((SECONDS - started))" \
+    "$host_tests_state" "$wow/ps5/build/release/${FOREVER_TITLE_ID:-PPSA99030}.zip"
